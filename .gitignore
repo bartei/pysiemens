@@ -1,0 +1,5 @@
+.idea/
+*.pyc
+/venv
+.DS_Store
+.eggs/
