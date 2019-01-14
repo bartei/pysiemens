@@ -7,6 +7,7 @@ import s7telegrams
 import time
 import datetime
 import logging
+import telegrams
 
 from errors import *
 
@@ -184,7 +185,7 @@ class S7Client(object):
         self.IsoHSize = 7  # TPKT+COTP Header Size
 
         # Properties
-        self._PDULength = 0
+        self.PduLength = 0
         self._PduSizeRequested = 480
         self._PLCPort = self.ISOTCP
         self.SocketTimeout = self.DefaultTimeout
@@ -224,10 +225,10 @@ class S7Client(object):
             utils.log_error(e)
             raise TcpConnectionFailedError
 
-    def RecvPacket(self, Buffer, Start, Size):
+    def RecvPacket(self, size):
         try:
-            received_data = self.Socket.recv(Size)
-            Buffer[Start:Size] = received_data
+            received_data = self.Socket.recv(size)
+            return received_data
         except Exception as e:
             log.error("Unable to receive data, see next message for details")
             utils.log_error(e)
@@ -244,15 +245,16 @@ class S7Client(object):
             utils.log_error(e)
             raise TcpNotConnectedError
 
-    def RecvISOPacket(self):
+    def RecvISOPacket(self, packet):
         Done = False
         Size = 0
 
         while not Done:
             # Get TPKT(4 bytes)
-            self.RecvPacket(self.PDU, 0, 4)
+            packet.header_from_bytes(self.RecvPacket(4))
+            # Now we have the length in the packet, retrieve the payload
 
-            Size = S7.GetWordAt(self.PDU, 2)
+            Size = packet.Length
             # Check 0 bytes Data Packet (only TPKT+COTP = 7 bytes)
             if Size == self.IsoHSize:
                 self.RecvPacket(self.PDU, 4, 3)  # Skip the remaining 3 bytes and Done is still false
@@ -262,49 +264,66 @@ class S7Client(object):
                 else:
                     Done = True
 
-        self.RecvPacket(self.PDU, 4, 3)
-        self.LastPDUType = self.PDU[5]
-        # Receives the S7 payload
-        self.RecvPacket(self.PDU, 7, Size-self.IsoHSize)
-        return Size
+        packet.payload_from_bytes(self.RecvPacket(Size - 4))
+        return
 
     def ISOConnect(self):
-        ISO_CR = bytearray()
-        ISO_CR[:] = s7telegrams.ISO_CR
-        ISO_CR[16] = self.LocalTSAP_HI
-        ISO_CR[17] = self.LocalTSAP_LO
-        ISO_CR[20] = self.RemoteTSAP_HI
-        ISO_CR[21] = self.RemoteTSAP_LO
+        TSAP = bytearray()
+        TSAP.extend((
+                0xC1,  # Src TSAP Identifier
+                0x02,  # Src TSAP Length (2 bytes)
+                self.LocalTSAP_HI,  # Src TSAP HI (will be overwritten)
+                self.LocalTSAP_LO,  # Src TSAP LO (will be overwritten)
+                0xC2,  # Dst TSAP Identifier
+                0x02,  # Dst TSAP Length (2 bytes)
+                self.RemoteTSAP_HI,  # Dst TSAP HI (will be overwritten)
+                self.RemoteTSAP_LO,  # Dst TSAP LO (will be overwritten)
+        ))
+
+        cotp = telegrams.COTP_CO()
+        cotp.CO_R = 0x00
+        cotp.SrcRef = 0x0000
+        cotp.DstRef = 0x0000
+        cotp.PDUType = telegrams.PduTypes.ConnectionRequest
+        cotp.TSAP[:] = TSAP
+
+        packet = telegrams.TPKT(cotp)
 
         # Sends the connection request telegram
-        self.SendPacket(ISO_CR)
-        Size = self.RecvISOPacket()
+        self.SendPacket(packet.to_bytes())
 
-        if Size == 22:
-            if self.LastPDUType != 0xD0:    # 0xD0 = CC Connection confirm
-                raise IsoConnectError
-        else:
+        rec_cotp = telegrams.COTP_CO()
+        rec_packet = telegrams.TPKT(rec_cotp)
+        self.RecvISOPacket(rec_packet)
+
+        if rec_cotp.PDUType != telegrams.PduTypes.ConnectionConfirm:
             raise IsoConnectError
 
-    def NegotiatePduLength(self):
-        # Set PDU Size Requested
-        S7_PN = bytearray()
-        S7_PN[:] = s7telegrams.S7_PN
+    def NegotiatePduLength(self, pdu_length=480):
+        try:
+            negotiation_request = telegrams.NegotiateParamsStructure()
+            negotiation_request.PDULength = pdu_length
 
-        S7.SetWordAt(S7_PN, 23, self._PduSizeRequested)
-        # Sends the connection request telegram
-        self.SendPacket(S7_PN)
+            S7Data = telegrams.S7ReqHeader(negotiation_request)
+            Cotp = telegrams.COTP_DT(S7Data)
+            IsoTelegram = telegrams.TPKT(Cotp)
 
-        Length = self.RecvISOPacket()
+            # Sends the connection request telegram
+            print(utils.ascii_to_hex_repr(IsoTelegram.to_bytes()))
+            self.SendPacket(IsoTelegram.to_bytes())
 
-        # Check S7 Error
-        if Length == 27 and S7.GetByteAt(self.PDU, 17) == 0 and S7.GetByteAt(self.PDU, 18) == 0:
-            # Get PDU Size Negotiated
-            self._PDULength = S7.GetWordAt(self.PDU, 25)
-            if self._PDULength <= 0:
+            negotiation_response = telegrams.NegotiateParamsStructure()
+            rec_data = telegrams.S7ReqHeader(negotiation_response)
+            rec_cotp = telegrams.COTP_DT(rec_data)
+            rec_packet = telegrams.TPKT(rec_cotp)
+            self.RecvISOPacket(rec_packet)
+
+            if negotiation_response.PDULength != negotiation_request.PDULength:
                 raise CliNegotiatingPduError
-        else:
-            raise CliNegotiatingPduError
+
+        except Exception as e:
+            log.error("Unable to negotiate communication with partner")
+            utils.log_error(e)
 
     def CpuError(self, Error):
         if Error == 0:
@@ -380,7 +399,7 @@ class S7Client(object):
                 WordSize = 1
                 WordLen = const.S7WLByte
 
-        MaxElements = (self._PDULength - 18) // WordSize # 18 = Reply telegram header
+        MaxElements = (self.PduLength - 18) // WordSize # 18 = Reply telegram header
         TotElements = Amount
 
         while TotElements > 0:
@@ -390,38 +409,27 @@ class S7Client(object):
 
             SizeRequested = NumElements * WordSize
 
-            # Setup the telegram
-            self.PDU[0:s7telegrams.Size_RD] = s7telegrams.S7_RW[0:s7telegrams.Size_RD]
+            request = telegrams.ReadAreaRequest(
+                area_type=Area,
+                area_offset=Start,
+                db_number=DBNumber,
+                num_elements=NumElements,
+                transport_size=WordLen
+            )
+            s7_header = telegrams.S7ReqHeader(request)
+            cotp_header = telegrams.COTP_DT(s7_header)
+            packet_request = telegrams.TPKT(cotp_header)
+            self.SendPacket(packet_request.to_bytes())
 
-            # Set DB Number
-            S7.SetByteAt(self.PDU, 27, Area)
+            response = telegrams.ReadAreaResponse()
+            s7_response_header = telegrams.S7ReqHeader(response)
+            cotp_response_header = telegrams.COTP_DT(s7_response_header)
+            packet_response = telegrams.TPKT(cotp_response_header)
 
-            if Area == const.S7AreaDB:
-                S7.SetWordAt(self.PDU, 25, DBNumber)
+            self.RecvISOPacket(packet_response)
+            print(utils.ascii_to_hex_repr(packet_response.to_bytes()))
 
-            # Adjusts Start and word length
-            if (WordLen == const.S7WLBit) or (WordLen == const.S7WLCounter) or (WordLen == const.S7WLTimer):
-                Address = Start
-                S7.SetByteAt(self.PDU, 22, WordLen)
-            else:
-                Address = Start << 3
-
-            # Num elements
-            S7.SetWordAt(self.PDU, 23, NumElements)
-
-            # Address into the PLC (only 3 bytes)
-            S7.SetByteAt(self.PDU, 30, Address & 0x0FF)
-
-            Address = Address >> 8
-            S7.SetByteAt(self.PDU, 29, Address & 0x0FF)
-
-            Address = Address >> 8
-            S7.SetByteAt(self.PDU, 28, Address & 0x0FF)
-
-            self.SendPacket(self.PDU, s7telegrams.Size_RD)
-
-            Length = self.RecvISOPacket()
-            if Length < 25:
+            if packet_response.Length < 25:
                 raise IsoInvalidDataSizeError
             else:
                 if self.PDU[21] != 0xFF:
@@ -459,7 +467,7 @@ class S7Client(object):
                 WordSize = 1
                 WordLen = const.S7WLByte
 
-        MaxElements = (self._PDULength - 35) // WordSize # 35 = Reply telegram header
+        MaxElements = (self.PduLength - 35) // WordSize # 35 = Reply telegram header
         TotElements = Amount
 
         while TotElements > 0:
@@ -580,7 +588,7 @@ class S7Client(object):
             self.PDU[Offset:Offset+len(S7Item)] = S7Item[0:len(S7Item)]
             Offset += len(S7Item)
 
-        if Offset > self._PDULength:
+        if Offset > self.PduLength:
             raise CliSizeOverPduError
 
         S7.SetWordAt(self.PDU, 2, Offset)  # Whole size
@@ -896,7 +904,18 @@ class S7Client(object):
         return next((item for item in const.S7PlcStatuses if item['Code'] == Status), None)
 
 
-def test(address):
-    client = S7Client()
-    client.ConnectTo(Address=address, Rack=0, Slot=2)
-    return client
+def deb():
+    NegotiationData = telegrams.NegotiateParamsStructure()
+
+    # The PDU size reuqested for the communication that we want to negotiate with the PLC
+    NegotiationData.PDULength = 480
+
+    S7Data = telegrams.S7ReqHeader(NegotiationData)
+    Cotp = telegrams.COTP_DT(S7Data)
+    IsoTelegram = telegrams.TPKT(Cotp)
+
+    # Sends the connection request telegram
+    print(utils.ascii_to_hex_repr(IsoTelegram.to_bytes()))
+    print(utils.ascii_to_hex_repr(s7telegrams.S7_PN))
+
+    # self.SendPacket(IsoTelegram.to_bytes())

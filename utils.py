@@ -192,15 +192,25 @@ def get_memory_usage():
     return psutil.phymem_usage().total/1024/1024
 
 
-def ascii_to_hex_repr(string):
+def ascii_to_hex_repr(string, width=40):
     """
     Returns a string with the hex representation of each character of the given string value
     :param string: Input string containing the byte values to be converted
     :return: string containing the hex representation
     """
-    result = ''
+    result = '[XX]'
+    for cols in range(0, min(width,len(string))):
+        result += " {:02}".format(cols)
+
+    result += "\n[00]"
+    cnt = 0
+
     for x in string:
-        result += format(ord(x), '02x')
+        if (cnt % width) == 0 and cnt > 1:
+            result += "\n[{:02}]".format(cnt)
+
+        result += " {}".format(format(x, '02x'))
+        cnt += 1
 
     return result
 

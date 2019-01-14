@@ -100,30 +100,3 @@ PduType_request = 1     # family request
 PduType_response = 3    # family response
 PduType_userdata = 7    # family user data
 
-# PDU Functions
-pduResponse = 0x02      # Response (when error)
-pduFuncRead = 0x04      # Read area
-pduFuncWrite = 0x05     # Write area
-pduNegotiate = 0xF0     # Negotiate PDU length
-pduStart = 0x28         # CPU start
-pduStop = 0x29          # CPU stop
-pduStartUpload = 0x1D   # Start Upload
-pduUpload = 0x1E        # Upload
-pduEndUpload = 0x1F     # EndUpload
-pduReqDownload = 0x1A   # Start Download request
-pduDownload = 0x1B      # Download request
-pduDownloadEnded = 0x1C # Download end request
-pduControl = 0x28       # Control (insert/delete..)
-
-# PDU SubFunctions
-SFun_ListAll = 0x01     # List all blocks
-SFun_ListBoT = 0x02     # List Blocks of type
-SFun_BlkInfo = 0x03     # Get Block info
-SFun_ReadSZL = 0x01     # Read SZL
-SFun_ReadClock = 0x01   # Read Clock (Date and Time)
-SFun_SetClock = 0x02    # Set Clock (Date and Time)
-SFun_EnterPwd = 0x01    # Enter password    for this session
-SFun_CancelPwd = 0x02   # Cancel password    for this session
-SFun_Insert = 0x50      # Insert block
-SFun_Delete = 0x42      # Delete block
-

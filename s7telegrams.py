@@ -1,4 +1,6 @@
 import const
+import telegrams
+
 
 ISO_CR = bytearray()
 ISO_CR.append(0x03)  # RFC 1006 ID (3)
@@ -24,15 +26,6 @@ ISO_CR.append(0xC2)  # Dst TSAP Identifier
 ISO_CR.append(0x02)  # Dst TSAP Length (2 bytes)
 ISO_CR.append(0x01)  # Dst TSAP HI (will be overwritten)
 ISO_CR.append(0x02)  # Dst TSAP LO (will be overwritten)
-
-TPKT_ISO = bytearray()
-TPKT_ISO.append(0x03)
-TPKT_ISO.append(0x00)
-TPKT_ISO.append(0x00)
-TPKT_ISO.append(0x1f)  # Telegram Length (Data Size + 31 or 35)
-TPKT_ISO.append(0x02)  # COTP See Above For Info
-TPKT_ISO.append(0xf0)
-TPKT_ISO.append(0x80)
 
 S7_PN = bytearray()
 S7_PN.append(0x03)
@@ -70,23 +63,25 @@ S7_PN.append(0x1e)  # PDU Length Requested = HI-LO Here Default 480 bytes
 
 
 S7_RW = bytearray()
+
+# TPKT
 S7_RW.append(0x03)
 S7_RW.append(0x00)
 
 S7_RW.append(0x00)
 S7_RW.append(0x1f)  # Telegram Length (Data Size + 31 or 35)
+# TPKT
 
+# COTP
 S7_RW.append(0x02)
 S7_RW.append(0xf0)
 S7_RW.append(0x80)  # COTP (see above for info)
-
+# COTP
+# S7 PROTO
 S7_RW.append(0x32)  # S7 Protocol ID
-
 S7_RW.append(0x01)  # Job Type
-
 S7_RW.append(0x00)
 S7_RW.append(0x00)  # Redundancy identification
-
 S7_RW.append(0x05)
 S7_RW.append(0x00)  # PDU Reference
 
@@ -96,6 +91,7 @@ S7_RW.append(0x0e)  # Parameters Length
 S7_RW.append(0x00)
 S7_RW.append(0x00)  # Data Length = Size(bytes) + 4
 
+# S7 PROTO PAYLOAD
 S7_RW.append(0x04)  # Function 4 Read Var, 5 Write Var
 
 S7_RW.append(0x01)  # Items count

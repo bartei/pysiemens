@@ -1,6 +1,8 @@
 import siemens
 import S7
 
+siemens.deb()
+
 client = siemens.S7Client()
 client.ConnectTo('10.1.2.69', 0, 2)
 Buffer = bytearray(84)
