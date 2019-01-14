@@ -309,13 +309,13 @@ class S7Client(object):
             IsoTelegram = telegrams.TPKT(Cotp)
 
             # Sends the connection request telegram
-            print(utils.ascii_to_hex_repr(IsoTelegram.to_bytes()))
+            # print(utils.ascii_to_hex_repr(IsoTelegram.to_bytes()))
             self.SendPacket(IsoTelegram.to_bytes())
 
             negotiation_response = telegrams.NegotiateParamsStructure()
-            rec_data = telegrams.S7ReqHeader(negotiation_response)
-            rec_cotp = telegrams.COTP_DT(rec_data)
-            rec_packet = telegrams.TPKT(rec_cotp)
+            s7_header_response = telegrams.S7ResponseHeader23(negotiation_response)
+            cotp_response = telegrams.COTP_DT(s7_header_response)
+            rec_packet = telegrams.TPKT(cotp_response)
             self.RecvISOPacket(rec_packet)
 
             if negotiation_response.PDULength != negotiation_request.PDULength:
@@ -377,10 +377,9 @@ class S7Client(object):
     def Disconnect(self):
         self.Socket.close()
 
-    def ReadArea(self, Area, DBNumber, Start, Amount, WordLen, Buffer):
-        Offset = 0
+    def ReadArea(self, Area, DBNumber, Start, Amount, WordLen):
         Elapsed = time.monotonic()
-
+        result = bytearray()
         # Some adjustment
         if Area == const.S7AreaCT:
             WordLen = const.S7WLCounter
@@ -399,15 +398,13 @@ class S7Client(object):
                 WordSize = 1
                 WordLen = const.S7WLByte
 
-        MaxElements = (self.PduLength - 18) // WordSize # 18 = Reply telegram header
+        MaxElements = (480 - 18) // WordSize # 18 = Reply telegram header
         TotElements = Amount
 
         while TotElements > 0:
             NumElements = TotElements
             if NumElements > MaxElements:
                 NumElements = MaxElements
-
-            SizeRequested = NumElements * WordSize
 
             request = telegrams.ReadAreaRequest(
                 area_type=Area,
@@ -417,32 +414,33 @@ class S7Client(object):
                 transport_size=WordLen
             )
             s7_header = telegrams.S7ReqHeader(request)
+            s7_header.Sequence = 0x0500
             cotp_header = telegrams.COTP_DT(s7_header)
             packet_request = telegrams.TPKT(cotp_header)
             self.SendPacket(packet_request.to_bytes())
+            # print(utils.ascii_to_hex_repr(packet_request.to_bytes()))
 
-            response = telegrams.ReadAreaResponse()
-            s7_response_header = telegrams.S7ReqHeader(response)
+            response = telegrams.ReadAreaResponseHeader()
+            s7_response_header = telegrams.S7ResponseHeader23(response)
             cotp_response_header = telegrams.COTP_DT(s7_response_header)
             packet_response = telegrams.TPKT(cotp_response_header)
 
             self.RecvISOPacket(packet_response)
-            print(utils.ascii_to_hex_repr(packet_response.to_bytes()))
+            # print(utils.ascii_to_hex_repr(packet_response.to_bytes()))
 
             if packet_response.Length < 25:
                 raise IsoInvalidDataSizeError
             else:
-                if self.PDU[21] != 0xFF:
+                if response.payload.ReturnCode != 0xFF:
                     self.CpuError(self.PDU[21])
                 else:
-                    Buffer[Offset:Offset + SizeRequested] = self.PDU[25:25+SizeRequested]
-                    Offset += SizeRequested
+                    result.extend(response.payload.payload)
 
             TotElements -= NumElements
             Start += NumElements * WordSize
 
-        self.BytesRead = Offset
         self.Time_ms = time.monotonic() - Elapsed
+        return result
 
     def WriteArea(self, Area, DBNumber, Start, Amount, WordLen, Buffer):
         Offset = 0
@@ -631,8 +629,8 @@ class S7Client(object):
                 Offset += 4  # Skip the Item header
         self.Time_ms = time.monotonic() - Elapsed
 
-    def DBRead(self, DBNumber, Start, Size, Buffer):
-        return self.ReadArea(const.S7AreaDB, DBNumber, Start, Size, const.S7WLByte, Buffer)
+    def DBRead(self, DBNumber, Start, Size):
+        return self.ReadArea(const.S7AreaDB, DBNumber, Start, Size, const.S7WLByte)
 
     def DBWrite(self, DBNumber, Start, Size, Buffer):
         return self.WriteArea(const.S7AreaDB, DBNumber, Start, Size, const.S7WLByte, Buffer)
@@ -902,20 +900,3 @@ class S7Client(object):
 
         self.Time_ms = time.monotonic() - Elapsed
         return next((item for item in const.S7PlcStatuses if item['Code'] == Status), None)
-
-
-def deb():
-    NegotiationData = telegrams.NegotiateParamsStructure()
-
-    # The PDU size reuqested for the communication that we want to negotiate with the PLC
-    NegotiationData.PDULength = 480
-
-    S7Data = telegrams.S7ReqHeader(NegotiationData)
-    Cotp = telegrams.COTP_DT(S7Data)
-    IsoTelegram = telegrams.TPKT(Cotp)
-
-    # Sends the connection request telegram
-    print(utils.ascii_to_hex_repr(IsoTelegram.to_bytes()))
-    print(utils.ascii_to_hex_repr(s7telegrams.S7_PN))
-
-    # self.SendPacket(IsoTelegram.to_bytes())

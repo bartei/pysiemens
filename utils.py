@@ -215,11 +215,20 @@ def ascii_to_hex_repr(string, width=40):
     return result
 
 
-def list_to_hex(list):
-    result = ''
-    for x in list:
-        result += format(x, '02x')
+def hex_log(string, width=40):
+    result = '[XX]'
+    for cols in range(0, min(width,len(string))):
+        result += " {:02}".format(cols)
 
+    result += "\n[00]"
+    cnt = 0
+
+    for x in string:
+        if (cnt % width) == 0 and cnt > 1:
+            result += "\n[{:02}]".format(cnt)
+
+        result += " {}".format(format(x, '02x'))
+        cnt += 1
     return result
 
 

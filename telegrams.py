@@ -132,7 +132,7 @@ class COTP_CO(ProtocolObject):
         self.CO_R = 0x00                            # If the telegram is used for Connection request/Confirm,
         self.PduSizeCode = 0xC0                     # Always the same value in our case
         self.PduSizeLen = 0x01                      # Always 1 in our cae
-        self.PduSizeVal = PduSizeValues.Size_1024   # That's the default found so far
+        self.PduSizeVal = PduSizeValues.Size_2048   # That's the default found so far
         self.TSAP = bytearray()
 
     def to_bytes(self):
@@ -262,6 +262,60 @@ class S7ReqHeader(ProtocolObject):
         result.extend(self.payload.to_bytes())
         return result
 
+    def from_bytes(self, b):
+        (
+            self.P,
+            self.PduType,
+            self.AB_EX,
+            self.Sequence,
+            self.ParLen,
+            self.DataLen,
+        ) = struct.unpack(">BBHHHH", b[0:10])
+        self.payload.from_bytes(b[10:])
+
+
+class S7ResponseHeader23(ProtocolObject):
+    def __init__(self, protocol_payload : ProtocolObject):
+        super(S7ResponseHeader23, self).__init__()
+        self.P = 0x32           # Telegram ID, always 0x32
+        self.PduType = 0x00     # Header Type 1 or 7
+        self.AB_EX = 0x0000     # AB currently unknown, maybe it can be used for long numbers.
+        self.Sequence = 0x0400  # Message ID. This can be used to make sure a received answer
+        self.ParLen = 0x0000    # Length of parameters which follow this header
+        self.DataLen = 0x0000   # Length of data which follow the parameters
+        self.Error = 0x0000     # Error Code
+        self.payload = protocol_payload
+
+    def to_bytes(self):
+        self.ParLen = len(self.payload.to_bytes())
+        self.DataLen = 0
+        elements = (
+            self.P,
+            self.PduType,
+            self.AB_EX,
+            self.Sequence,
+            self.ParLen,
+            self.DataLen,
+            self.Error,
+        )
+
+        result = bytearray()
+        result.extend(struct.pack(">BBHHHHH", *elements))
+        result.extend(self.payload.to_bytes())
+        return result
+
+    def from_bytes(self, b):
+        (
+            self.P,
+            self.PduType,
+            self.AB_EX,
+            self.Sequence,
+            self.ParLen,
+            self.DataLen,
+            self.Error,
+        ) = struct.unpack(">BBHHHHH", b[0:12])
+        self.payload.from_bytes(b[12:])
+
 
 class NegotiateParamsStructure(ProtocolObject):
     def __init__(self):
@@ -328,8 +382,6 @@ class ReadAreaRequest(ProtocolObject):
             self.area_offset = (area_offset << 3)
 
     def to_bytes(self):
-        import S7
-        self.num_elements = S7.DataSizeByte(self.transport_size) * self.transport_size
         elements = (
             self.function,
             self.items_count,
@@ -351,10 +403,95 @@ class ReadAreaRequest(ProtocolObject):
         return result
 
 
-class ReadAreaResponse(ProtocolObject):
+class ReadAreaResponseHeader(ProtocolObject):
     def __init__(self):
-        super(ReadAreaResponse, self).__init__()
-        self.data = bytearray()
+        super(ReadAreaResponseHeader, self).__init__()
+        self.FunRead = 0x00
+        self.ItemCount = 0x00
+        self.payload = ReadAreaResponseItem()
 
     def from_bytes(self, b):
-        self.data[:] = b
+        (
+            self.FunRead,
+            self.ItemCount,
+        ) = struct.unpack(">BB", b[0:2])
+        self.payload.from_bytes(b[2:])
+
+    def to_bytes(self):
+        elements = (
+            self.FunRead,
+            self.ItemCount,
+        )
+        result = bytearray()
+        result.extend(struct.pack(">BB", *elements))
+        result.extend(self.payload.to_bytes())
+        return result
+
+
+class ReadAreaResponseItem(ProtocolObject):
+    def __init__(self):
+        super(ReadAreaResponseItem, self).__init__()
+        self.ReturnCode = 0x00
+        self.TransportSize = 0x00
+        self.DataLength = 0x0000
+        self.payload = bytearray()
+
+    def from_bytes(self, b):
+        (
+            self.ReturnCode,
+            self.TransportSize,
+            self.DataLength,
+        ) = struct.unpack(">BBH", b[0:4])
+        self.payload[:] = b[4:]
+
+    def to_bytes(self):
+        elements = (
+            self.ReturnCode,
+            self.TransportSize,
+            self.DataLength,
+        )
+        result = bytearray()
+        result.extend(struct.pack(">BBH", *elements))
+        result.extend(self.payload)
+        return result
+
+
+
+#
+# //==============================================================================
+# //                               FUNCTION READ
+# //==============================================================================
+# typedef struct {
+# 	byte    ItemHead[3];
+# 	byte    TransportSize;
+# 	word    Length;
+# 	word    DBNumber;
+# 	byte    Area;
+# 	byte    Address[3];
+# }TReqFunReadItem, * PReqFunReadItem;
+#
+# //typedef TReqFunReadItem;
+#
+# typedef struct {
+# 	byte   FunRead;
+# 	byte   ItemsCount;
+# 	TReqFunReadItem Items[MaxVars];
+# }TReqFunReadParams;
+#
+# typedef TReqFunReadParams* PReqFunReadParams;
+#
+# typedef struct {
+# 	byte   FunRead;
+# 	byte   ItemCount;
+# }TResFunReadParams;
+#
+# typedef TResFunReadParams* PResFunReadParams;
+#
+# typedef struct {
+# 	byte    ReturnCode;
+# 	byte    TransportSize;
+# 	word    DataLength;
+# 	byte    Data[IsoPayload_Size - 17]; // 17 = header + params + data header - 1
+# }TResFunReadItem, *PResFunReadItem;
+#
+# typedef PResFunReadItem TResFunReadData[MaxVars];
