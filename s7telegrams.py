@@ -103,7 +103,7 @@ S7_RW.append(0x0a)  # Length of remaining bytes
 
 S7_RW.append(0x10)  # Syntax ID
 
-S7_RW.append(S7.Length.Byte)  # Transport Size idx=22
+S7_RW.append(S7.DataTypes.Byte)  # Transport Size idx=22
 
 S7_RW.append(0x00)
 S7_RW.append(0x00)  # Num Elements
@@ -165,7 +165,7 @@ S7_MRD_ITEM.append(0x0a)  # Length of remaining bytes
 
 S7_MRD_ITEM.append(0x10)  # Syntax ID
 
-S7_MRD_ITEM.append(S7.Length.Byte)  # Transport Size idx = 3
+S7_MRD_ITEM.append(S7.DataTypes.Byte)  # Transport Size idx = 3
 
 S7_MRD_ITEM.append(0x00)  #
 S7_MRD_ITEM.append(0x00)  # Num Elements
@@ -216,7 +216,7 @@ S7_MWR_PARAM.append(0x0a)  # Length of remaining bytes
 
 S7_MWR_PARAM.append(0x10)  # Syntax ID
 
-S7_MWR_PARAM.append(S7.Length.Byte)  # Transport Size idx=3
+S7_MWR_PARAM.append(S7.DataTypes.Byte)  # Transport Size idx=3
 
 S7_MWR_PARAM.append(0x00)  #
 S7_MWR_PARAM.append(0x00)  # Num Elements

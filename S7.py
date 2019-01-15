@@ -13,7 +13,7 @@ class Area(object):
     CT = 0x1C
     TM = 0x1D
 
-class Length(object):
+class DataTypes(object):
     Bit = 0x01
     Byte = 0x02
     Char = 0x03
@@ -25,6 +25,12 @@ class Length(object):
     Counter = 0x1C
     Timer = 0x1D
 
+class ResultTransportSizes(object):
+    TS_ResBit = 0x03
+    TS_ResByte = 0x04
+    TS_ResInt = 0x05
+    TS_ResReal = 0x07
+    TS_ResOctet = 0x09
 
 def BCDtoByte(B):
     return ((B >> 4) * 10) + (B & 0x0F)
@@ -36,26 +42,26 @@ def CopyFrom(Buffer, Pos, Size):
     return Buffer[Pos:Pos+Size]
 
 
-def DataSizeByte(WordLength):
-    if WordLength ==  Length.Bit:
+def data_size(data_type):
+    if data_type ==  DataTypes.Bit:
         return 1
-    elif WordLength == Length.Byte:
+    elif data_type == DataTypes.Byte:
         return 1
-    elif WordLength == Length.Char:
+    elif data_type == DataTypes.Char:
         return 1
-    elif WordLength == Length.Word:
+    elif data_type == DataTypes.Word:
         return 2
-    elif WordLength == Length.DWord:
+    elif data_type == DataTypes.DWord:
         return 4
-    elif WordLength == Length.Int:
+    elif data_type == DataTypes.Int:
         return 2
-    elif WordLength == Length.DInt:
+    elif data_type == DataTypes.DInt:
         return 4
-    elif WordLength == Length.Real:
+    elif data_type == DataTypes.Real:
         return 4
-    elif WordLength == Length.Counter:
+    elif data_type == DataTypes.Counter:
         return 2
-    elif WordLength == Length.Timer:
+    elif data_type == DataTypes.Timer:
         return 2
     else:
         return 0

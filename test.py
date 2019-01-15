@@ -2,7 +2,7 @@ import siemens
 import S7
 
 client = siemens.S7Client()
-client.ConnectTo('10.1.2.69', 0, 2)
+client.ConnectTo(address='10.1.2.69', port=102, rack=0, slot=2, pdu_size=240)
 Buffer = client.DBRead(1, 0, 80)
 print(S7.GetDIntAt(Buffer, 2))
 print(S7.GetTODAt(Buffer, 76))
@@ -13,9 +13,9 @@ print(S7.GetDateTimeAt(Buffer, 58))
 # S7.SetIntAt(tosend, 0, 100)
 # client.DBWrite(1, 0, len(tosend), tosend)
 
-tosend = bytearray(4)
-S7.SetDIntAt(tosend, 0, 6789)
-client.DBWrite(1, 2, len(tosend), tosend)
+# tosend = bytearray(4)
+# S7.SetDIntAt(tosend, 0, 6789)
+# client.DBWrite(1, 2, len(tosend), tosend)
 # tosend = bytearray(1)
 # S7.SetBitAt(tosend, 0, 0, False)
 # client.DBWrite(1, 30, len(tosend), tosend)
