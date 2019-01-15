@@ -511,6 +511,7 @@ class S7Client(object):
             write_request = telegrams.WriteAreaRequest(write_request_params)
 
             s7_request_header = telegrams.S7ReqHeader(write_request)
+            s7_request_header.DataLen = WordSize * NumElements + 4
             cotp_request = telegrams.COTP_DT(s7_request_header)
             packet_request = telegrams.TPKT(cotp_request)
 
