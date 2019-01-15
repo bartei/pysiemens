@@ -5,6 +5,27 @@ import utils
 
 bias = 621355968000000000 # "decimicros" between 0001-01-01 00:00:00 and 1970-01-01 00:00:00
 
+class Area(object):
+    PE = 0x81
+    PA = 0x82
+    MK = 0x83
+    DB = 0x84
+    CT = 0x1C
+    TM = 0x1D
+
+class Length(object):
+    Bit = 0x01
+    Byte = 0x02
+    Char = 0x03
+    Word = 0x04
+    Int = 0x05
+    DWord = 0x06
+    DInt = 0x07
+    Real = 0x08
+    Counter = 0x1C
+    Timer = 0x1D
+
+
 def BCDtoByte(B):
     return ((B >> 4) * 10) + (B & 0x0F)
 
@@ -16,25 +37,25 @@ def CopyFrom(Buffer, Pos, Size):
 
 
 def DataSizeByte(WordLength):
-    if WordLength == const.S7WLBit:
+    if WordLength ==  Length.Bit:
         return 1
-    elif WordLength == const.S7WLByte:
+    elif WordLength == Length.Byte:
         return 1
-    elif WordLength == const.S7WLChar:
+    elif WordLength == Length.Char:
         return 1
-    elif WordLength == const.S7WLWord:
+    elif WordLength == Length.Word:
         return 2
-    elif WordLength == const.S7WLDWord:
+    elif WordLength == Length.DWord:
         return 4
-    elif WordLength == const.S7WLInt:
+    elif WordLength == Length.Int:
         return 2
-    elif WordLength == const.S7WLDInt:
+    elif WordLength == Length.DInt:
         return 4
-    elif WordLength == const.S7WLReal:
+    elif WordLength == Length.Real:
         return 4
-    elif WordLength == const.S7WLCounter:
+    elif WordLength == Length.Counter:
         return 2
-    elif WordLength == const.S7WLTimer:
+    elif WordLength == Length.Timer:
         return 2
     else:
         return 0

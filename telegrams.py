@@ -2,6 +2,7 @@ import struct
 import logging
 import utils
 import const
+import S7
 
 log = logging.getLogger(__file__)
 
@@ -65,17 +66,17 @@ class ProtocolObject(object):
 class TPKT(ProtocolObject):
     def __init__(self, protocol_payload : ProtocolObject):
         super(TPKT, self).__init__()
-        self.Version = 3
-        self.Reserved = 0
-        self.Length = 0
+        self.version = 3
+        self.reserved = 0
+        self.length = 0
         self.payload = protocol_payload
 
     def to_bytes(self):
-        self.Length = 4 + len(self.payload.to_bytes())
+        self.length = 4 + len(self.payload.to_bytes())
         elements = [
-            self.Version,
-            self.Reserved,
-            self.Length,
+            self.version,
+            self.reserved,
+            self.length,
         ]
         result = bytearray()
         result.extend(struct.pack(">BBH", *elements))
@@ -84,9 +85,9 @@ class TPKT(ProtocolObject):
 
     def header_from_bytes(self, b):
         (
-        self.Version,
-        self.Reserved,
-        self.Length,
+        self.version,
+        self.reserved,
+        self.length,
         ) = struct.unpack(">BBH", b[0:4])
 
     def payload_from_bytes(self, b):
@@ -94,9 +95,9 @@ class TPKT(ProtocolObject):
 
     def from_bytes(self, b):
         (
-        self.Version,
-        self.Reserved,
-        self.Length,
+        self.version,
+        self.reserved,
+        self.length,
         ) = struct.unpack(">BBH", b[0:4])
         self.payload.from_bytes(b[4:])
 
@@ -167,7 +168,6 @@ class COTP_CO(ProtocolObject):
         self.TSAP = b[10:]
 
 
-
 # COTP Header for DATA EXCHANGE
 class COTP_DT(ProtocolObject):
     def __init__(self, protocol_payload : ProtocolObject):
@@ -208,7 +208,7 @@ class IsoControlPDU(ProtocolObject):
         self.COTP.Params.TSAP[:] = tsap_payload
 
     def to_bytes(self):
-        self.TPKT.Length = len(self.TPKT.to_bytes()) + len(self.COTP.to_bytes())
+        self.TPKT.length = len(self.TPKT.to_bytes()) + len(self.COTP.to_bytes())
         result = bytearray()
         result.extend(self.TPKT.to_bytes())
         result.extend(self.COTP.to_bytes())
@@ -228,11 +228,12 @@ class IsoDataPDU(object):
         self.COTP.payload[:] = p
 
     def to_bytes(self):
-        self.TPKT.Length = len(self.TPKT.to_bytes()) + len(self.COTP.to_bytes())
+        self.TPKT.length = len(self.TPKT.to_bytes()) + len(self.COTP.to_bytes())
         result = bytearray()
         result.extend(self.TPKT.to_bytes())
         result.extend(self.COTP.to_bytes())
         return result
+
 
 class S7ReqHeader(ProtocolObject):
     def __init__(self, protocol_payload : ProtocolObject):
@@ -359,7 +360,7 @@ class ReadAreaRequest(ProtocolObject):
                  area_offset=0,
                  db_number=1,
                  num_elements=1,
-                 transport_size=const.S7WLByte):
+                 transport_size=S7.Length.Byte):
         super(ReadAreaRequest, self).__init__()
         self.function = 4 # 4 read, 5 write
         self.items_count = 1
@@ -372,9 +373,9 @@ class ReadAreaRequest(ProtocolObject):
         self.area_type = area_type
 
         no_shift_areas = (
-            const.S7WLBit,
-            const.S7WLCounter,
-            const.S7WLTimer,
+            S7.Length.Bit,
+            S7.Length.Counter,
+            S7.Length.Timer,
         )
         if area_offset in no_shift_areas:
             self.area_offset = area_offset
@@ -406,35 +407,66 @@ class ReadAreaRequest(ProtocolObject):
 class ReadAreaResponseHeader(ProtocolObject):
     def __init__(self):
         super(ReadAreaResponseHeader, self).__init__()
-        self.FunRead = 0x00
-        self.ItemCount = 0x00
-        self.payload = ReadAreaResponseItem()
+        self.fun_read = 0x00
+        self.item_count = 0x00
+        self.items = ReadAreaResponseItem()
 
     def from_bytes(self, b):
         (
-            self.FunRead,
-            self.ItemCount,
+            self.fun_read,
+            self.item_count,
         ) = struct.unpack(">BB", b[0:2])
-        self.payload.from_bytes(b[2:])
+        self.items.from_bytes(b[2:])
 
     def to_bytes(self):
         elements = (
-            self.FunRead,
-            self.ItemCount,
+            self.fun_read,
+            self.item_count,
         )
         result = bytearray()
         result.extend(struct.pack(">BB", *elements))
-        result.extend(self.payload.to_bytes())
+        result.extend(self.items.to_bytes())
         return result
 
 
 class ReadAreaResponseItem(ProtocolObject):
     def __init__(self):
         super(ReadAreaResponseItem, self).__init__()
+        self.return_code = 0x00
+        self.transport_size = 0x00
+        self.data_length = 0x0000
+        self.payload = bytearray()
+
+    def from_bytes(self, b):
+        (
+            self.return_code,
+            self.transport_size,
+            self.data_length,
+        ) = struct.unpack(">BBH", b[0:4])
+        self.payload[:] = b[4:]
+
+    def to_bytes(self):
+        elements = (
+            self.return_code,
+            self.transport_size,
+            self.data_length,
+        )
+        result = bytearray()
+        result.extend(struct.pack(">BBH", *elements))
+        result.extend(self.payload)
+        return result
+
+
+
+
+
+class WriteAreaRequestItem(ProtocolObject):
+    def __init__(self):
+        super(WriteAreaRequestItem, self).__init__()
         self.ReturnCode = 0x00
         self.TransportSize = 0x00
         self.DataLength = 0x0000
-        self.payload = bytearray()
+        self.data = bytearray()
 
     def from_bytes(self, b):
         (
@@ -442,7 +474,7 @@ class ReadAreaResponseItem(ProtocolObject):
             self.TransportSize,
             self.DataLength,
         ) = struct.unpack(">BBH", b[0:4])
-        self.payload[:] = b[4:]
+        self.data[:] = b[4:]
 
     def to_bytes(self):
         elements = (
@@ -452,46 +484,102 @@ class ReadAreaResponseItem(ProtocolObject):
         )
         result = bytearray()
         result.extend(struct.pack(">BBH", *elements))
-        result.extend(self.payload)
+        result.extend(self.data)
+        return result
+
+class WriteAreaRequestParameters(ProtocolObject):
+    def __init__(self, payload: WriteAreaRequestItem):
+        super(WriteAreaRequestParameters, self).__init__()
+        self.var_spec = 0x12
+        self.remaining_bytes_len = 0x0a
+        self.syntax_id = 0x10
+        self.TransportSize = 0x00
+        self.Length = 0x0000
+        self.DBNumber = 0x0000
+        self.Area = 0x00
+        self.Address = 0x000000
+        self.payload = payload
+
+    def from_bytes(self, b):
+        (
+            self.var_spec,
+            self.remaining_bytes_len,
+            self.syntax_id,
+            self.TransportSize,
+            self.Length,
+            self.DBNumber,
+            self.Area,
+        ) = struct.unpack(">BBBBHHB", b[0:9])
+        tmp_address = bytearray(4)
+        tmp_address[1:4] = b[9:12]
+        self.Address = struct.unpack(">L", tmp_address)
+        self.payload.from_bytes(b[12:])
+
+    def to_bytes(self):
+        elements = (
+            self.var_spec,
+            self.remaining_bytes_len,
+            self.syntax_id,
+            self.TransportSize,
+            self.Length,
+            self.DBNumber,
+            self.Area,
+        )
+        result = bytearray()
+        result.extend(struct.pack(">BBBBHHB", *elements))
+        tmp_address = struct.pack(">L", self.Address)
+        result.extend(tmp_address[1:])
+        result.extend(self.payload.to_bytes())
         return result
 
 
+class WriteAreaRequest(ProtocolObject):
+    def __init__(self, payload: WriteAreaRequestParameters):
+        super(WriteAreaRequest, self).__init__()
+        self.FunWrite = 0x05
+        self.ItemsCount = 0x01
+        self.payload = payload
 
-#
-# //==============================================================================
-# //                               FUNCTION READ
-# //==============================================================================
-# typedef struct {
-# 	byte    ItemHead[3];
-# 	byte    TransportSize;
-# 	word    Length;
-# 	word    DBNumber;
-# 	byte    Area;
-# 	byte    Address[3];
-# }TReqFunReadItem, * PReqFunReadItem;
-#
-# //typedef TReqFunReadItem;
-#
-# typedef struct {
-# 	byte   FunRead;
-# 	byte   ItemsCount;
-# 	TReqFunReadItem Items[MaxVars];
-# }TReqFunReadParams;
-#
-# typedef TReqFunReadParams* PReqFunReadParams;
-#
-# typedef struct {
-# 	byte   FunRead;
-# 	byte   ItemCount;
-# }TResFunReadParams;
-#
-# typedef TResFunReadParams* PResFunReadParams;
-#
-# typedef struct {
-# 	byte    ReturnCode;
-# 	byte    TransportSize;
-# 	word    DataLength;
-# 	byte    Data[IsoPayload_Size - 17]; // 17 = header + params + data header - 1
-# }TResFunReadItem, *PResFunReadItem;
-#
-# typedef PResFunReadItem TResFunReadData[MaxVars];
+    def from_bytes(self, b):
+        if len(b) >= 2:
+            (
+                self.FunWrite,
+                self.ItemsCount,
+            ) = struct.unpack(">BB", b[0:2])
+            self.payload.from_bytes(b[2:])
+
+    def to_bytes(self):
+        elements = (
+            self.FunWrite,
+            self.ItemsCount,
+        )
+        result = bytearray()
+        result.extend(struct.pack(">BB", *elements))
+        result.extend(self.payload.to_bytes())
+        return result
+
+
+class WriteAreaResponse(ProtocolObject):
+    def __init__(self):
+        super(WriteAreaResponse, self).__init__()
+        self.FunWrite = 0x00
+        self.ItemCount = 0x00
+        self.Data = bytearray()
+
+    def from_bytes(self, b):
+        if len(b) >= 2:
+            (
+                self.FunWrite,
+                self.ItemCount,
+            ) = struct.unpack(">BB", b[0:2])
+            self.Data = b[2:]
+
+    def to_bytes(self):
+        elements = (
+            self.FunWrite,
+            self.ItemCount,
+        )
+        result = bytearray()
+        result.extend(struct.pack(">BB", *elements))
+        result.extend(self.Data)
+        return result

@@ -1,24 +1,4 @@
-# Area ID
-S7AreaPE = 0x81
-S7AreaPA = 0x82
-S7AreaMK = 0x83
-S7AreaDB = 0x84
-S7AreaCT = 0x1C
-S7AreaTM = 0x1D
-
-# Word Length
-S7WLBit = 0x01
-S7WLByte = 0x02
-S7WLChar = 0x03
-S7WLWord = 0x04
-S7WLInt = 0x05
-S7WLDWord = 0x06
-S7WLDInt = 0x07
-S7WLReal = 0x08
-S7WLCounter = 0x1C
-S7WLTimer = 0x1D
-
-MaxVars     = 20;
+MaxVars = 20
 
 
 # Block type

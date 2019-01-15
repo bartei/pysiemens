@@ -216,7 +216,7 @@ def ascii_to_hex_repr(string, width=40):
 
 
 def hex_log(string, width=40):
-    result = '[XX]'
+    result = '\n[XX]'
     for cols in range(0, min(width,len(string))):
         result += " {:02}".format(cols)
 

@@ -1,6 +1,7 @@
 import const
-import telegrams
+import S7
 
+import telegrams
 
 ISO_CR = bytearray()
 ISO_CR.append(0x03)  # RFC 1006 ID (3)
@@ -102,7 +103,7 @@ S7_RW.append(0x0a)  # Length of remaining bytes
 
 S7_RW.append(0x10)  # Syntax ID
 
-S7_RW.append(const.S7WLByte)  # Transport Size idx=22
+S7_RW.append(S7.Length.Byte)  # Transport Size idx=22
 
 S7_RW.append(0x00)
 S7_RW.append(0x00)  # Num Elements
@@ -115,6 +116,7 @@ S7_RW.append(0x84)  # Area Type
 S7_RW.append(0x00)
 S7_RW.append(0x00)
 S7_RW.append(0x00)  # Area Offset
+
 # WR Area
 S7_RW.append(0x00)  # Reserved
 
@@ -163,7 +165,7 @@ S7_MRD_ITEM.append(0x0a)  # Length of remaining bytes
 
 S7_MRD_ITEM.append(0x10)  # Syntax ID
 
-S7_MRD_ITEM.append(const.S7WLByte)  # Transport Size idx = 3
+S7_MRD_ITEM.append(S7.Length.Byte)  # Transport Size idx = 3
 
 S7_MRD_ITEM.append(0x00)  #
 S7_MRD_ITEM.append(0x00)  # Num Elements
@@ -214,7 +216,7 @@ S7_MWR_PARAM.append(0x0a)  # Length of remaining bytes
 
 S7_MWR_PARAM.append(0x10)  # Syntax ID
 
-S7_MWR_PARAM.append(const.S7WLByte)  # Transport Size idx=3
+S7_MWR_PARAM.append(S7.Length.Byte)  # Transport Size idx=3
 
 S7_MWR_PARAM.append(0x00)  #
 S7_MWR_PARAM.append(0x00)  # Num Elements

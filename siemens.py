@@ -208,7 +208,7 @@ class S7Client(object):
         self.CreateSocket()
 
     def __del__(self):
-        self.Disconnect()
+        self.disconnect()
 
     def CreateSocket(self):
         self.Socket = socket.socket()
@@ -254,10 +254,10 @@ class S7Client(object):
             packet.header_from_bytes(self.RecvPacket(4))
             # Now we have the length in the packet, retrieve the payload
 
-            Size = packet.Length
+            Size = packet.length
             # Check 0 bytes Data Packet (only TPKT+COTP = 7 bytes)
             if Size == self.IsoHSize:
-                self.RecvPacket(self.PDU, 4, 3)  # Skip the remaining 3 bytes and Done is still false
+                self.RecvPacket(3)  # Skip the remaining 3 bytes and Done is still false
             else:
                 if Size > self._PduSizeRequested + self.IsoHSize or Size < self.MinPduSize:
                     raise IsoInvalidPduError
@@ -304,13 +304,13 @@ class S7Client(object):
             negotiation_request = telegrams.NegotiateParamsStructure()
             negotiation_request.PDULength = pdu_length
 
-            S7Data = telegrams.S7ReqHeader(negotiation_request)
-            Cotp = telegrams.COTP_DT(S7Data)
-            IsoTelegram = telegrams.TPKT(Cotp)
+            s7_header_request = telegrams.S7ReqHeader(negotiation_request)
+            cotp_request = telegrams.COTP_DT(s7_header_request)
+            packet_request = telegrams.TPKT(cotp_request)
 
             # Sends the connection request telegram
             # print(utils.ascii_to_hex_repr(IsoTelegram.to_bytes()))
-            self.SendPacket(IsoTelegram.to_bytes())
+            self.SendPacket(packet_request.to_bytes())
 
             negotiation_response = telegrams.NegotiateParamsStructure()
             s7_header_response = telegrams.S7ResponseHeader23(negotiation_response)
@@ -325,7 +325,7 @@ class S7Client(object):
             log.error("Unable to negotiate communication with partner")
             utils.log_error(e)
 
-    def CpuError(self, Error):
+    def __cpu_error(self, Error):
         if Error == 0:
             return 0
         elif Error == self.Code7AddressOutOfRange:
@@ -356,7 +356,7 @@ class S7Client(object):
         else:
             raise CliFunctionRefusedError
 
-    def Connect(self):
+    def __connect(self):
         self.Time_ms = 0
         Elapsed = time.monotonic()
         self.TCPConnect()
@@ -365,38 +365,38 @@ class S7Client(object):
         self.Time_ms = time.monotonic() - Elapsed
 
     def ConnectTo(self, Address, Rack, Slot):
-        RemoteTSAP = (self.ConnectionType << 8) + (Rack * 0x20) + Slot
-        self.SetConnectionParams(Address, 0x0100, RemoteTSAP)
-        self.Connect()
+        remote_tsap = (self.ConnectionType << 8) + (Rack * 0x20) + Slot
+        self.__set_connection_params(Address, 0x0100, remote_tsap)
+        self.__connect()
 
-    def SetConnectionParams(self, Address, LocalTSAP, RemoteTSAP):
+    def __set_connection_params(self, Address, LocalTSAP, RemoteTSAP):
         self.IPAddress = Address
         self.LocalTSAP_HI, self.LocalTSAP_LO = struct.unpack("BB", LocalTSAP.to_bytes(2, byteorder='big'))
         self.RemoteTSAP_HI, self.RemoteTSAP_LO = struct.unpack("BB", RemoteTSAP.to_bytes(2, byteorder='big'))
 
-    def Disconnect(self):
+    def disconnect(self):
         self.Socket.close()
 
     def ReadArea(self, Area, DBNumber, Start, Amount, WordLen):
         Elapsed = time.monotonic()
         result = bytearray()
         # Some adjustment
-        if Area == const.S7AreaCT:
-            WordLen = const.S7WLCounter
-        if Area == const.S7AreaTM:
-            WordLen = const.S7WLTimer
+        if Area is S7.Area.CT:
+            WordLen = S7.Length.Counter
+        if Area is S7.Area.TM:
+            WordLen = S7.Length.Timer
 
         # Calc Word size
         WordSize = S7.DataSizeByte(WordLen)
         if WordSize == 0:
             raise CliInvalidWordLenError
-        if WordLen == const.S7WLBit:
+        if WordLen == S7.Length.Bit:
             Amount = 1  # Only 1 bit can be transferred at time
         else:
-            if (WordLen != const.S7WLCounter) and (WordLen != const.S7WLTimer):
+            if (WordLen != S7.Length.Counter) and (WordLen != S7.Length.Timer):
                 Amount = Amount * WordSize
                 WordSize = 1
-                WordLen = const.S7WLByte
+                WordLen = S7.Length.Byte
 
         MaxElements = (480 - 18) // WordSize # 18 = Reply telegram header
         TotElements = Amount
@@ -413,28 +413,30 @@ class S7Client(object):
                 num_elements=NumElements,
                 transport_size=WordLen
             )
-            s7_header = telegrams.S7ReqHeader(request)
-            s7_header.Sequence = 0x0500
-            cotp_header = telegrams.COTP_DT(s7_header)
-            packet_request = telegrams.TPKT(cotp_header)
+
+            s7_request = telegrams.S7ReqHeader(request)
+            s7_request.Sequence = 0x0500
+            cotp_request = telegrams.COTP_DT(s7_request)
+            packet_request = telegrams.TPKT(cotp_request)
+
             self.SendPacket(packet_request.to_bytes())
-            # print(utils.ascii_to_hex_repr(packet_request.to_bytes()))
+            log.debug(utils.hex_log(packet_request.to_bytes()))
 
             response = telegrams.ReadAreaResponseHeader()
-            s7_response_header = telegrams.S7ResponseHeader23(response)
-            cotp_response_header = telegrams.COTP_DT(s7_response_header)
-            packet_response = telegrams.TPKT(cotp_response_header)
+            s7_response = telegrams.S7ResponseHeader23(response)
+            cotp_response = telegrams.COTP_DT(s7_response)
+            packet_response = telegrams.TPKT(cotp_response)
 
             self.RecvISOPacket(packet_response)
-            # print(utils.ascii_to_hex_repr(packet_response.to_bytes()))
+            log.debug(utils.hex_log(packet_response.to_bytes()))
 
-            if packet_response.Length < 25:
+            if packet_response.length < 25:
                 raise IsoInvalidDataSizeError
             else:
-                if response.payload.ReturnCode != 0xFF:
-                    self.CpuError(self.PDU[21])
+                if response.items.return_code != 0xFF:
+                    self.__cpu_error(response.items.ReturnCode)
                 else:
-                    result.extend(response.payload.payload)
+                    result.extend(response.items.payload)
 
             TotElements -= NumElements
             Start += NumElements * WordSize
@@ -448,24 +450,24 @@ class S7Client(object):
         Elapsed = time.monotonic()
 
         # Some adjustment
-        if Area == const.S7AreaCT:
-            WordLen = const.S7WLCounter
-        if Area == const.S7AreaTM:
-            WordLen = const.S7WLTimer
+        if Area == S7.Area.MK:
+            WordLen = S7.Length.Counter
+        if Area == S7.Area.TM:
+            WordLen = S7.Length.Timer
 
         # Calc Word size
         WordSize = S7.DataSizeByte(WordLen)
         if WordSize == 0:
             raise CliInvalidWordLenError
-        if WordLen == const.S7WLBit: # Only 1 bit can be transferred at time
+        if WordLen == S7.Length.Bit: # Only 1 bit can be transferred at time
             Amount = 1
         else:
-            if (WordLen != const.S7WLCounter) and (WordLen != const.S7WLTimer):
+            if (WordLen != S7.Length.Counter) and (WordLen != S7.Length.Timer):
                 Amount = Amount * WordSize
                 WordSize = 1
-                WordLen = const.S7WLByte
+                WordLen = S7.Length.Byte
 
-        MaxElements = (self.PduLength - 35) // WordSize # 35 = Reply telegram header
+        MaxElements = (480 - 35) // WordSize # 35 = Reply telegram header
         TotElements = Amount
 
         while TotElements > 0:
@@ -474,69 +476,61 @@ class S7Client(object):
                 NumElements = MaxElements
 
             DataSize = NumElements * WordSize
-            IsoSize = s7telegrams.Size_WR + DataSize
 
-            # Setup the telegram
-            self.PDU[0:s7telegrams.Size_WR] = s7telegrams.S7_RW[0:s7telegrams.Size_WR]
-
-            # Whole telegram Size
-            S7.SetWordAt(self.PDU, 2, IsoSize)
-
-            # Data Length
-            Length = DataSize + 4
-            S7.SetWordAt(self.PDU, 15, Length)
-
-            # Function
-            S7.SetByteAt(self.PDU, 17, 0x05)
-
-            # Set DB Number
-            S7.SetByteAt(self.PDU, 27, Area)
-
-            if Area == const.S7AreaDB:
-                S7.SetWordAt(self.PDU, 25, DBNumber)
+            write_request_item = telegrams.WriteAreaRequestItem()
+            write_request_item.DataLength = NumElements
 
             # Adjusts Start and word length
-            if (WordLen == const.S7WLBit) or (WordLen == const.S7WLCounter) or (WordLen == const.S7WLTimer):
+            if (WordLen == S7.Length.Bit) or (WordLen == S7.Length.Counter) or (WordLen == S7.Length.Timer):
                 Address = Start
                 Length = DataSize
-                S7.SetByteAt(self.PDU, 22, WordLen)
             else:
                 Address = Start << 3
                 Length = DataSize << 3
-
-            # Num elements
-            S7.SetWordAt(self.PDU, 23, NumElements)
-            # Address into the PLC
-            S7.SetByteAt(self.PDU, 30, Address & 0x0FF)
-            Address = Address >> 8
-            S7.SetByteAt(self.PDU, 29, Address & 0x0FF)
-            Address = Address >> 8
-            S7.SetByteAt(self.PDU, 28, Address & 0x0FF)
+            write_request_item.DataLength = Length
 
             # Transport Size
-            if WordLen == const.S7WLBit:
-                S7.SetByteAt(self.PDU, 32, self.TS_ResBit)
-            elif WordLen == const.S7WLCounter:
-                S7.SetByteAt(self.PDU, 32, self.TS_ResOctet)
-            elif WordLen == const.S7WLTimer:
-                S7.SetByteAt(self.PDU, 32, self.TS_ResOctet)
+            if WordLen == S7.Length.Bit:
+                write_request_item.TransportSize = self.TS_ResBit
+            elif WordLen == S7.Length.Counter:
+                write_request_item.TransportSize = self.TS_ResOctet
+            elif WordLen == S7.Length.Timer:
+                write_request_item.TransportSize = self.TS_ResOctet
             else:
-                S7.SetByteAt(self.PDU, 32, self.TS_ResByte)
+                write_request_item.TransportSize = self.TS_ResByte
 
-            # Length
-            S7.SetWordAt(self.PDU, 33, Length)
+            write_request_item.data[:] = Buffer
 
-            # Copies the Data
-            self.PDU[35:35+DataSize] = Buffer[Offset:Offset+DataSize]
+            write_request_params = telegrams.WriteAreaRequestParameters(write_request_item)
+            write_request_params.Address = Address
+            write_request_params.DBNumber = DBNumber
+            write_request_params.Length = NumElements
+            write_request_params.Area = Area
+            write_request_params.TransportSize = WordLen
 
-            self.SendPacket(self.PDU, IsoSize)
+            write_request = telegrams.WriteAreaRequest(write_request_params)
 
-            Length = self.RecvISOPacket()
-            if Length == 22:
-                if self.PDU[21] != 0xFF:
-                    self.CpuError(self.PDU[21])
-            else:
-                raise IsoInvalidPduError
+            s7_request_header = telegrams.S7ReqHeader(write_request)
+            cotp_request = telegrams.COTP_DT(s7_request_header)
+            packet_request = telegrams.TPKT(cotp_request)
+
+            self.SendPacket(packet_request.to_bytes())
+            print(utils.hex_log(packet_request.to_bytes()))
+
+            write_response = telegrams.WriteAreaResponse()
+            s7_response = telegrams.S7ResponseHeader23(write_response)
+            cotp_response = telegrams.COTP_DT(s7_response)
+            packet_response = telegrams.TPKT(cotp_response)
+
+            self.RecvISOPacket(packet_response)
+            print(utils.hex_log(packet_response.to_bytes()))
+
+
+            # if packet_response.length == 22:
+            #     if s7_response.  self.PDU[21] != 0xFF:
+            #         self.__cpu_error(self.PDU[21])
+            # else:
+            #     raise IsoInvalidPduError
 
             Offset += DataSize
             TotElements -= NumElements
@@ -569,7 +563,7 @@ class S7Client(object):
 
             S7.SetWordAt(S7Item, 4, Items[c].Amount)
 
-            if Items[c].Area == const.S7AreaDB:
+            if Items[c].Area == const.DB:
                 S7.SetWordAt(S7Item, 6, Items[c].DBNumber)
             S7Item[8] = Items[c].Area
 
@@ -600,7 +594,7 @@ class S7Client(object):
             raise IsoInvalidPduError
 
         # Check Global Operation Result
-        self.CpuError(S7.GetWordAt(self.PDU, 17))
+        self.__cpu_error(S7.GetWordAt(self.PDU, 17))
 
         # Get true ItemsCount
         ItemsRead = S7.GetByteAt(self.PDU, 20)
@@ -625,37 +619,37 @@ class S7Client(object):
                     ItemSize += 1 # Odd size are rounded
                 Offset = Offset + 4 + ItemSize
             else:
-                Items[c].Result = self.CpuError(S7ItemRead[0])
+                Items[c].Result = self.__cpu_error(S7ItemRead[0])
                 Offset += 4  # Skip the Item header
         self.Time_ms = time.monotonic() - Elapsed
 
     def DBRead(self, DBNumber, Start, Size):
-        return self.ReadArea(const.S7AreaDB, DBNumber, Start, Size, const.S7WLByte)
+        return self.ReadArea(S7.Area.DB, DBNumber, Start, Size, S7.Length.Byte)
 
     def DBWrite(self, DBNumber, Start, Size, Buffer):
-        return self.WriteArea(const.S7AreaDB, DBNumber, Start, Size, const.S7WLByte, Buffer)
+        return self.WriteArea(S7.Area.DB, DBNumber, Start, Size, S7.Length.Byte, Buffer)
 
     def MBRead(self, Start, Size, Buffer):
-        return self.ReadArea(const.S7AreaMK, 0, Start, Size, const.S7WLByte, Buffer)
+        return self.ReadArea(S7.Area.MK, 0, Start, Size, S7.Length.Byte, Buffer)
 
     def MBWrite(self, Start, Size, Buffer):
-        return self.WriteArea(const.S7AreaMK, 0, Start, Size, const.S7WLByte, Buffer)
+        return self.WriteArea(S7.Area.MK, 0, Start, Size, S7.Length.Byte, Buffer)
 
     def EBRead(self, Start, Size, Buffer):
-        return self.ReadArea(const.S7AreaPE, 0, Start, Size, const.S7WLByte, Buffer)
+        return self.ReadArea(S7.Area.PE, 0, Start, Size, S7.Length.Byte, Buffer)
 
     def EBWrite(self, Start, Size, Buffer):
-        return self.WriteArea(const.S7AreaPE, 0, Start, Size, const.S7WLByte, Buffer)
+        return self.WriteArea(S7.Area.PE, 0, Start, Size, S7.Length.Byte, Buffer)
 
     def ABRead(self, Start, Size, Buffer):
-        return self.ReadArea(const.S7AreaPA, 0, Start, Size, const.S7WLByte, Buffer)
+        return self.ReadArea(S7.Area.PA, 0, Start, Size, S7.Length.Byte, Buffer)
 
     def ABWrite(self, Start, Size, Buffer):
-        return self.WriteArea(const.S7AreaPA, 0, Start, Size, const.S7WLByte, Buffer)
+        return self.WriteArea(S7.Area.PA, 0, Start, Size, S7.Length.Byte, Buffer)
 
     def TMRead(self, Start, Amount, Buffer):
         sBuffer = bytearray(Amount * 2)
-        self.ReadArea(const.S7AreaTM, 0, Start, Amount, const.S7WLTimer, sBuffer)
+        self.ReadArea(S7.Area.TM, 0, Start, Amount, S7.Length.Timer, sBuffer)
         for c in range(0, Amount):
             Buffer[c] = ((sBuffer[c * 2 + 1] << 8) + (sBuffer[c * 2]))
 
@@ -665,11 +659,11 @@ class S7Client(object):
             sBuffer[c * 2 + 1] = ((Buffer[c] & 0xFF00) >> 8)
             sBuffer[c * 2] = (Buffer[c] & 0x00FF)
 
-        self.WriteArea(const.S7AreaTM, 0, Start, Amount, const.S7WLTimer, sBuffer)
+        self.WriteArea(S7.Area.TM, 0, Start, Amount, S7.Length.Timer, sBuffer)
 
     def CTRead(self, Start, Amount, Buffer):
         sBuffer = bytearray(Amount * 2)
-        self.ReadArea(const.S7AreaCT, 0, Start, Amount, const.S7WLCounter, sBuffer)
+        self.ReadArea(S7.Area.CT, 0, Start, Amount, S7.Length.Counter, sBuffer)
         for c in range(0, Amount):
             Buffer[c] = ((sBuffer[c * 2 + 1] << 8) + (sBuffer[c * 2]))
 
@@ -679,7 +673,7 @@ class S7Client(object):
             sBuffer[c * 2 + 1] = ((Buffer[c] & 0xFF00)>>8)
             sBuffer[c * 2]= (Buffer[c] & 0x00FF)
 
-        self.WriteArea(const.S7AreaCT, 0, Start, Amount, const.S7WLCounter, sBuffer)
+        self.WriteArea(S7.Area.CT, 0, Start, Amount, S7.Length.Counter, sBuffer)
 
     @staticmethod
     def SiemensTimestamp(EncodedDate):
@@ -726,7 +720,7 @@ class S7Client(object):
                 result['Version'] = self.PDU[99]
                 result['CheckSum'] = S7.GetWordAt(self.PDU, 101)
             else:
-                self.CpuError(Result)
+                self.__cpu_error(Result)
         else:
             raise IsoInvalidPduError
 
@@ -894,7 +888,7 @@ class S7Client(object):
 
         Result = S7.GetWordAt(self.PDU, 27)
         if Result != 0:
-            self.CpuError(Result)
+            self.__cpu_error(Result)
 
         Status = self.PDU[44]
 
