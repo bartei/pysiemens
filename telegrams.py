@@ -247,8 +247,7 @@ class S7ReqHeader(ProtocolObject):
         self.payload = protocol_payload
 
     def to_bytes(self):
-        self.ParLen = 0x0e      #- len(self.payload.to_bytes())
-        #self.DataLen = len(self.payload.to_bytes()) - 0x0e
+        self.ParLen = len(self.payload.to_bytes())
         elements = (
             self.P,
             self.PduType,
@@ -288,8 +287,8 @@ class S7ResponseHeader23(ProtocolObject):
         self.payload = protocol_payload
 
     def to_bytes(self):
-        self.ParLen = 0x0e
-        # self.DataLen = data_len
+        self.ParLen = len(self.payload.to_bytes())
+        self.DataLen = 0
         elements = (
             self.P,
             self.PduType,
