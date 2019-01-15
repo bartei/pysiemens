@@ -3,7 +3,7 @@ import S7
 
 client = siemens.S7Client()
 client.ConnectTo('10.1.2.69', 0, 2)
-Buffer = client.DBRead(1, 0, 84)
+Buffer = client.DBRead(1, 0, 80)
 print(S7.GetDIntAt(Buffer, 2))
 print(S7.GetTODAt(Buffer, 76))
 print(S7.GetDateAt(Buffer, 70))
