@@ -304,7 +304,7 @@ class S7Client(object):
         self.Socket.close()
 
     def ReadArea(self, area, db, start, num_elements, elements_type):
-        read_area = telegrams.ReadArea(self.Socket, self.pdu_length)
+        read_area = telegrams.AreaTransferFunctions(self.Socket, self.pdu_length)
         return read_area.read(area=area, db=db, start=start, num_elements=num_elements, elements_type=elements_type)
 
 
