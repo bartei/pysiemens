@@ -501,46 +501,45 @@ S7_CLR_PWD.append(0x00)
 
 # S7 STOP request
 S7_STOP = bytearray()
+#TPKT
 S7_STOP.append(0x03)
 S7_STOP.append(0x00)
 S7_STOP.append(0x00)
 S7_STOP.append(0x21)
 
+#COTP
 S7_STOP.append(0x02)
 S7_STOP.append(0xf0)
 S7_STOP.append(0x80)
-S7_STOP.append(0x32)
 
+#S7 HDR
+S7_STOP.append(0x32)
 S7_STOP.append(0x01)
 S7_STOP.append(0x00)
 S7_STOP.append(0x00)
 S7_STOP.append(0x0e)
-
 S7_STOP.append(0x00)
 S7_STOP.append(0x00)
 S7_STOP.append(0x10)
 S7_STOP.append(0x00)
-
-S7_STOP.append(0x00)
-S7_STOP.append(0x29)
-S7_STOP.append(0x00)
 S7_STOP.append(0x00)
 
-S7_STOP.append(0x00)
-S7_STOP.append(0x00)
-S7_STOP.append(0x00)
-S7_STOP.append(0x09)
-
-S7_STOP.append(0x50)
-S7_STOP.append(0x5f)
+# ATF HDR
+S7_STOP.append(0x29) # Elem Type
+S7_STOP.append(0x00) # Elem Count
+S7_STOP.append(0x00) # Elem Count
+S7_STOP.append(0x00) # DB
+S7_STOP.append(0x00) # DB
+S7_STOP.append(0x00) # AREA
+S7_STOP.append(0x09) # OFFSET
+S7_STOP.append(0x50) # OFFSET
+S7_STOP.append(0x5f) # OFFSET
 S7_STOP.append(0x50)
 S7_STOP.append(0x52)
-
 S7_STOP.append(0x4f)
 S7_STOP.append(0x47)
 S7_STOP.append(0x52)
 S7_STOP.append(0x41)
-
 S7_STOP.append(0x4d)
 
 # S7 HOT Start request
@@ -650,95 +649,98 @@ pduAlreadyStopped = 0x07  # CPU already in stop mode
 
 # S7 Get PLC Status
 S7_GET_STAT = bytearray()
+# TPKT
 S7_GET_STAT.append(0x03)
 S7_GET_STAT.append(0x00)
 S7_GET_STAT.append(0x00)
 S7_GET_STAT.append(0x21)
 
+# COTP
 S7_GET_STAT.append(0x02)
 S7_GET_STAT.append(0xf0)
 S7_GET_STAT.append(0x80)
-S7_GET_STAT.append(0x32)
 
+# S7 HDR
+S7_GET_STAT.append(0x32)
 S7_GET_STAT.append(0x07)
 S7_GET_STAT.append(0x00)
 S7_GET_STAT.append(0x00)
 S7_GET_STAT.append(0x2c)
-
 S7_GET_STAT.append(0x00)
 S7_GET_STAT.append(0x00)
 S7_GET_STAT.append(0x08)
 S7_GET_STAT.append(0x00)
-
 S7_GET_STAT.append(0x08)
+
+# S7 FUN REQ
 S7_GET_STAT.append(0x00)
 S7_GET_STAT.append(0x01)
 S7_GET_STAT.append(0x12)
-
 S7_GET_STAT.append(0x04)
 S7_GET_STAT.append(0x11)
+
+# S7 FUN HDR
 S7_GET_STAT.append(0x44)
 S7_GET_STAT.append(0x01)
-
 S7_GET_STAT.append(0x00)
 S7_GET_STAT.append(0xff)
 S7_GET_STAT.append(0x09)
 S7_GET_STAT.append(0x00)
-
 S7_GET_STAT.append(0x04)
 S7_GET_STAT.append(0x04)
 S7_GET_STAT.append(0x24)
-S7_GET_STAT.append(0x00)
 
+S7_GET_STAT.append(0x00)
 S7_GET_STAT.append(0x00)
 
 
 # S7 Get Block Info Request Header (contains also ISO Header and COTP Header)
 S7_BI = bytearray()
+# TPKT HDR
 S7_BI.append(0x03)
 S7_BI.append(0x00)
 S7_BI.append(0x00)
 S7_BI.append(0x25)
 
+# COPT DT HEADER
 S7_BI.append(0x02)
 S7_BI.append(0xf0)
 S7_BI.append(0x80)
-S7_BI.append(0x32)
 
+# S7 Header
+S7_BI.append(0x32)
 S7_BI.append(0x07)
 S7_BI.append(0x00)
 S7_BI.append(0x00)
 S7_BI.append(0x05)
+S7_BI.append(0x00)
+S7_BI.append(0x00)
+S7_BI.append(0x08) # Par Len
+S7_BI.append(0x00)
+S7_BI.append(0x0c) # Data Len
 
-S7_BI.append(0x00)
-S7_BI.append(0x00)
-S7_BI.append(0x08)
-S7_BI.append(0x00)
+# Function Request Header
+S7_BI.append(0x00) #Func
+S7_BI.append(0x01) #Items
+S7_BI.append(0x12) #Var_Spec
+S7_BI.append(0x04) #Rem Bytes
+S7_BI.append(0x11) #Syntax_id
 
-S7_BI.append(0x0c)
-S7_BI.append(0x00)
-S7_BI.append(0x01)
-S7_BI.append(0x12)
-
-S7_BI.append(0x04)
-S7_BI.append(0x11)
+#AreaTransferFunction Header
 S7_BI.append(0x43)
 S7_BI.append(0x03)
-
 S7_BI.append(0x00)
 S7_BI.append(0xff)
 S7_BI.append(0x09)
 S7_BI.append(0x00)
-
 S7_BI.append(0x08)
 S7_BI.append(0x30)
-
 S7_BI.append(0x41)  # Block Type
 
+#AreaTransferFunction Params
 S7_BI.append(0x30)  #
 S7_BI.append(0x30)  #
 S7_BI.append(0x30)  #
 S7_BI.append(0x30)  #
 S7_BI.append(0x30)  # ASCII Block Number
-
 S7_BI.append(0x41)

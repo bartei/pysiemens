@@ -9,9 +9,9 @@ print(S7.GetTODAt(Buffer, 76))
 print(S7.GetDateAt(Buffer, 70))
 print(S7.GetDateTimeAt(Buffer, 58))
 
-# tosend = bytearray(2)
-# S7.SetIntAt(tosend, 0, 100)
-# client.DBWrite(1, 0, len(tosend), tosend)
+tosend = bytearray(4)
+S7.SetDIntAt(tosend, 0, 21100)
+client.DBWrite(1, 2, len(tosend), tosend)
 
 # tosend = bytearray(4)
 # S7.SetDIntAt(tosend, 0, 6789)

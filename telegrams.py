@@ -56,17 +56,6 @@ class PduSubFunctions(object):
     SFun_Delete = 0x42  # Delete block
 
 
-class ProtocolObject(object):
-    def __init__(self):
-        pass
-
-    def from_bytes(self, b):
-        pass
-
-    def to_bytes(self):
-        return bytearray()
-
-
 class TpktTransport(object):
     def __init__(self, socket):
         self.socket = socket
@@ -105,7 +94,6 @@ class TpktTransport(object):
         log.debug(utils.hex_log(self.payload))
 
         return self.payload
-
 
 class CoptParams(object):
     def __init__(self, socket):
@@ -146,7 +134,6 @@ class CoptParams(object):
     def recv(self):
         response = self.cotp.recv()
         return response
-
 
 class CotpControlTransport(object):
     def __init__(self, socket):
@@ -215,252 +202,6 @@ class CotpDataTransport(object):
         self.eot_num = struct.unpack(">B", packet[2:3])[0]
         return packet[3:]
 
-
-# class S7Request(object):
-#     def __init__(self, socket):
-#         self.cotp = CotpDataTransport(socket)
-#
-#         self.p = 0x32           # Telegram ID, always 0x32
-#         self.pdu_type = 1       # Header Type 1 or 7 AKA Job Type
-#         self.ab_ex = 0x0000     # AB currently unknown, maybe it can be used for long numbers. AKA Redundancy
-#         self.sequence = 0x0400  # Message ID. This can be used to make sure a received answer AKA Pdu Reference
-#         self.par_len = 0        # Length of parameters which follow this header
-#         self.data_len = 0       # Length of data which follow the parameters
-#
-#     def send(self, data, par_len, data_len, p=0x32, pdu_type=1, ab_ex=0, sequence=0x0400):
-#         self.p = p
-#         self.pdu_type = pdu_type
-#         self.ab_ex = ab_ex
-#         self.sequence = sequence
-#         self.par_len = par_len
-#         self.data_len = data_len
-#
-#         packet = bytearray(10)
-#         packet[0:1] = struct.pack(">B", self.p)
-#         packet[1:2] = struct.pack(">B", self.pdu_type)
-#         packet[2:4] = struct.pack(">H", self.ab_ex)
-#         packet[4:6] = struct.pack(">H", self.sequence)
-#         packet[6:8] = struct.pack(">H", self.par_len)
-#         packet[8:10] = struct.pack(">H", self.data_len)
-#
-#         log.debug("{} Header:".format(self.__class__.__name__))
-#         log.debug(utils.hex_log(packet))
-#
-#         packet.extend(data)
-#         self.cotp.send(packet)
-#
-#
-#     def recv(self):
-#         packet = self.cotp.recv()
-#         log.debug("S7 Response:")
-#         log.debug(utils.hex_log(packet))
-#         return packet[10:]
-
-
-class NegotiateParams(object):
-    def __init__(self, socket):
-        self.s7 = S7Response23(socket)
-        self.fun_negotiate = PduFunctions.pduNegotiate
-        self.unknown = 0
-        self.parallel_jobs_1 = 0x0001
-        self.parallel_jobs_2 = 0x0001
-        self.pdu_length = 480                   # Requested length for the negotiation
-        self.negotiated_pdu_length = 480        # Confirmed length for the negotiation
-
-    def negotiate(self, pdu_length=480):
-        self.pdu_length = pdu_length
-
-        packet = bytearray(8)
-        packet[0:1] = struct.pack(">B", self.fun_negotiate)
-        packet[1:2] = struct.pack(">B", self.unknown)
-        packet[2:4] = struct.pack(">H", self.parallel_jobs_1)
-        packet[4:6] = struct.pack(">H", self.parallel_jobs_2)
-        packet[6:8] = struct.pack(">H", self.pdu_length)
-
-        log.debug("{} Header:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(packet))
-
-        self.s7.send(packet, par_len=len(packet), data_len=0)
-
-        response = self.s7.recv()
-        log.debug("Parameters negotiation response:")
-        log.debug(utils.hex_log(response))
-
-        self.fun_negotiate = struct.unpack(">B", packet[0:1])[0]
-        self.unknown = struct.unpack(">B", packet[1:2])[0]
-        self.parallel_jobs_1 = struct.unpack(">H", packet[2:4])[0]
-        self.parallel_jobs_2 = struct.unpack(">H", packet[4:6])[0]
-        self.negotiated_pdu_length = struct.unpack(">H", packet[6:8])[0]
-
-        return self.negotiated_pdu_length == self.pdu_length
-
-
-class AreaFunctionRequest(object):
-    def __init__(self, socket):
-        self.s7 = S7Response23(socket)
-        self.function = 4 # 4 read, 5 write
-        self.items_count = 1
-        self.var_spec = 0x12
-        self.remaining_bytes_len = 0x0a
-        self.syntax_id = 0x10
-
-    def send(self, payload, function):
-        self.function = function
-        self.items_count = 1
-        self.var_spec = 0x12
-        self.remaining_bytes_len = 0x0a
-        self.syntax_id = 0x10
-        packet = bytearray(5)
-        packet[0:1] = struct.pack(">B", self.function)
-        packet[1:2] = struct.pack(">B", self.items_count)
-        packet[2:3] = struct.pack(">B", self.var_spec)
-        packet[3:4] = struct.pack(">B", self.remaining_bytes_len)
-        packet[4:5] = struct.pack(">B", self.syntax_id)
-
-        log.debug("{} Header:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(packet))
-
-        packet.extend(payload)
-        self.s7.send(data=packet, par_len=len(packet), data_len=0)
-
-
-class AreaTransferFunctions(object):
-    def __init__(self, socket, pdu_length):
-        self.pdu_length = pdu_length
-
-        self.function_request = AreaFunctionRequest(socket)
-        self.read_response = FunctionItem(socket)
-
-        self.transport_size = 0x00
-        self.num_elements = 0x0000
-        self.db_number = 0x0000
-        self.area_type = 0x00
-        self.area_offset = 0x000000 # 3 bytes in size
-
-    def read(self, area, db, start, num_elements, elements_type):
-        self.num_elements = num_elements
-        self.db_number = db
-        self.area_type = area
-
-        if area is S7.Area.CT:
-            elements_type = S7.DataTypes.Counter
-        if area is S7.Area.TM:
-            elements_type = S7.DataTypes.Timer
-
-        # Calc Word size
-        self.transport_size = S7.data_size(elements_type)
-        if self.transport_size == 0:
-            raise Exception("Invalid elements_type given")
-
-        tot_elements = num_elements
-        if elements_type == S7.DataTypes.Bit:
-            tot_elements = 1  # Only 1 bit can be transferred at time
-        else:
-            if (elements_type != S7.DataTypes.Counter) and (elements_type != S7.DataTypes.Timer):
-                tot_elements = tot_elements * self.transport_size
-                self.transport_size = 1
-                elements_type = S7.DataTypes.Byte
-
-        max_elements = (self.pdu_length - 18) // self.transport_size
-
-        result = bytearray()
-        while tot_elements > 0:
-            num_elements = min(tot_elements, max_elements)
-
-            area_offset = start
-
-            no_shift_areas = (
-                S7.DataTypes.Bit,
-                S7.DataTypes.Counter,
-                S7.DataTypes.Timer,
-            )
-            if area_offset not in no_shift_areas:
-                area_offset = (area_offset << 3)
-
-            packet = bytearray(9)
-            packet[0:1] = struct.pack(">B", elements_type)
-            packet[1:3] = struct.pack(">H", num_elements)
-            packet[3:5] = struct.pack(">H", self.db_number)
-            packet[5:6] = struct.pack(">B", self.area_type)
-            packet[6:9] = struct.pack(">L", area_offset)[1:4]
-
-            log.debug("{} Header:".format(self.__class__.__name__))
-            log.debug(utils.hex_log(packet))
-
-            self.function_request.send(packet, function=4)
-
-            # Read with the response header
-            response = self.read_response.recv()
-            result.extend(response)
-
-            tot_elements -= num_elements
-            start += num_elements * self.transport_size
-
-        return result
-
-    def write(self, area, db, start, num_elements, elements_type, data):
-        self.num_elements = num_elements
-        self.db_number = db
-        self.area_type = area
-
-        if area is S7.Area.CT:
-            elements_type = S7.DataTypes.Counter
-        if area is S7.Area.TM:
-            elements_type = S7.DataTypes.Timer
-
-        # Calc Word size
-        self.transport_size = S7.data_size(elements_type)
-        if self.transport_size == 0:
-            raise Exception("Invalid elements_type given")
-
-        tot_elements = num_elements
-        if elements_type == S7.DataTypes.Bit:
-            tot_elements = 1  # Only 1 bit can be transferred at time
-        else:
-            if (elements_type != S7.DataTypes.Counter) and (elements_type != S7.DataTypes.Timer):
-                tot_elements = tot_elements * self.transport_size
-                self.transport_size = 1
-                elements_type = S7.DataTypes.Byte
-
-        max_elements = (self.pdu_length - 18) // self.transport_size
-
-        result = bytearray()
-        while tot_elements > 0:
-            num_elements = min(tot_elements, max_elements)
-
-            area_offset = start
-
-            no_shift_areas = (
-                S7.DataTypes.Bit,
-                S7.DataTypes.Counter,
-                S7.DataTypes.Timer,
-            )
-            if area_offset not in no_shift_areas:
-                area_offset = (area_offset << 3)
-
-
-            packet = bytearray(9)
-            packet[0:1] = struct.pack(">B", elements_type)
-            packet[1:3] = struct.pack(">H", num_elements)
-            packet[3:5] = struct.pack(">H", self.db_number)
-            packet[5:6] = struct.pack(">B", self.area_type)
-            packet[6:9] = struct.pack(">L", area_offset)[1:4]
-
-            log.debug("{} Header:".format(self.__class__.__name__))
-            log.debug(utils.hex_log(packet))
-
-            self.function_request.send(packet, function=4)
-
-            # Read with the response header
-            response = self.read_response.recv()
-            result.extend(response)
-
-            tot_elements -= num_elements
-            start += num_elements * self.transport_size
-
-        return result
-
-
 class S7Response23(object):
     def __init__(self, socket):
         self.cotp = CotpDataTransport(socket)
@@ -473,7 +214,7 @@ class S7Response23(object):
         self.data_len = 0  # Length of data which follow the parameters
         self.error = 0x00
 
-    def send(self, data, par_len, data_len, p=0x32, pdu_type=1, ab_ex=0, sequence=0x0400):
+    def send(self, data, par_len, data_len, p=0x32, pdu_type=1, ab_ex=0, sequence=0x0500):
         self.p = p
         self.pdu_type = pdu_type
         self.ab_ex = ab_ex
@@ -513,13 +254,121 @@ class S7Response23(object):
 
         return packet[12:]
 
-class FunctionParameters(object):
+class NegotiateParams(object):
     def __init__(self, socket):
         self.s7 = S7Response23(socket)
+        self.fun_negotiate = PduFunctions.pduNegotiate
+        self.unknown = 0
+        self.parallel_jobs_1 = 0x0001
+        self.parallel_jobs_2 = 0x0001
+        self.pdu_length = 480                   # Requested length for the negotiation
+        self.negotiated_pdu_length = 480        # Confirmed length for the negotiation
+
+    def negotiate(self, pdu_length=480):
+        self.pdu_length = pdu_length
+
+        packet = bytearray(8)
+        packet[0:1] = struct.pack(">B", self.fun_negotiate)
+        packet[1:2] = struct.pack(">B", self.unknown)
+        packet[2:4] = struct.pack(">H", self.parallel_jobs_1)
+        packet[4:6] = struct.pack(">H", self.parallel_jobs_2)
+        packet[6:8] = struct.pack(">H", self.pdu_length)
+
+        log.debug("{} Header:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(packet))
+
+        self.s7.send(packet, par_len=len(packet), data_len=0)
+
+        response = self.s7.recv()
+        log.debug("Parameters negotiation response:")
+        log.debug(utils.hex_log(response))
+
+        self.fun_negotiate = struct.unpack(">B", packet[0:1])[0]
+        self.unknown = struct.unpack(">B", packet[1:2])[0]
+        self.parallel_jobs_1 = struct.unpack(">H", packet[2:4])[0]
+        self.parallel_jobs_2 = struct.unpack(">H", packet[4:6])[0]
+        self.negotiated_pdu_length = struct.unpack(">H", packet[6:8])[0]
+
+        return self.negotiated_pdu_length == self.pdu_length
+
+class AreaFunctionRequest(object):
+    def __init__(self, socket):
+        self.s7 = S7Response23(socket)
+        self.function = 4 # 4 read, 5 write
+        self.items_count = 1
+        self.var_spec = 0x12
+        self.remaining_bytes_len = 0x0a
+        self.syntax_id = 0x10
+
+    def send(self, function, parameters, data):
+        self.function = function
+        self.items_count = 1
+        self.var_spec = 0x12
+        self.remaining_bytes_len = 0x0a
+        self.syntax_id = 0x10
+        packet = bytearray(5)
+        packet[0:1] = struct.pack(">B", self.function)
+        packet[1:2] = struct.pack(">B", self.items_count)
+        packet[2:3] = struct.pack(">B", self.var_spec)
+        packet[3:4] = struct.pack(">B", self.remaining_bytes_len)
+        packet[4:5] = struct.pack(">B", self.syntax_id)
+
+        log.debug("{} sends:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(packet))
+
+        packet.extend(parameters)
+        par_len = len(packet)
+        packet.extend(data)
+        self.s7.send(data=packet, par_len=par_len, data_len=len(data))
+
+    def recv(self):
+        packet = self.s7.recv()
+        log.debug("{} recv packet:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(packet))
+        return packet
+
+
+class AreaTransferFunctions(object):
+    def __init__(self, socket):
+        self.function_request = AreaFunctionRequest(socket)
+        self.socket = socket
+
+        self.transport_size = 0x00
+        self.num_elements = 0x0000
+        self.db_number = 0x0000
+        self.area_type = 0x00
+        self.area_offset = 0x000000 # 3 bytes in size
+
+    def send(self, function_code, area, db, offset, elements_count, elements_type, payload):
+        packet = bytearray(9)
+        packet[0:1] = struct.pack(">B", elements_type)
+        packet[1:3] = struct.pack(">H", elements_count)
+        packet[3:5] = struct.pack(">H", db)
+        packet[5:6] = struct.pack(">B", area)
+        packet[6:9] = struct.pack(">L", offset)[1:4]
+
+        log.debug("{} sends header:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(packet))
+
+        log.debug("{} sends data:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(payload))
+
+        self.function_request.send(function=function_code, parameters=packet, data=payload)
+
+    def recv(self):
+        packet = self.function_request.recv()
+        log.debug("{} recv packet:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(packet))
+        return packet
+
+
+class FunctionParameters(object):
+    def __init__(self, socket):
+        self.transfer_runctions = AreaTransferFunctions(socket)
         self.function_code = 0x00
         self.item_count = 0x00
 
-    def send(self, function_code, item_count, payload):
+    def send(self, function_code, item_count, area, db, offset, elements_count, elements_type, payload):
         self.function_code = function_code
         self.item_count = item_count
         packet = bytearray(2)
@@ -527,12 +376,19 @@ class FunctionParameters(object):
         packet[1:2] = struct.pack(">B", self.item_count)
         packet.extend(payload)
 
+        log.debug("{} sends:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(packet))
+
+
+        self.transfer_runctions.send(function_code=function_code, area=area, db=db, offset=offset,
+                                     elements_count=elements_count, elements_type=elements_type, payload=payload)
+
     def recv(self):
-        packet = self.s7.recv()
+        packet = self.transfer_runctions.recv()
         self.function_code = struct.unpack(">B", packet[0:1])[0]
         self.item_count = struct.unpack(">B", packet[1:2])[0]
 
-        log.debug("{} Response:".format(self.__class__.__name__))
+        log.debug("{} receives:".format(self.__class__.__name__))
         log.debug(utils.hex_log(packet))
 
         return packet[2:]
@@ -546,151 +402,164 @@ class FunctionItem(object):
         self.data_length = 0x0000
         self.payload = bytearray()
 
-    def send(self, transport_size, data_length, payload):
+    def send(self, data_length, area, db, offset, elements_count, elements_type, payload):
         self.return_code = 0x00
-        self.transport_size = transport_size
+        self.transport_size =  S7.transport_size(elements_type)
+
+        # Adjust offset and data length
+        no_shift_areas = (
+            S7.DataTypes.Bit,
+            S7.DataTypes.Counter,
+            S7.DataTypes.Timer,
+        )
+        if offset not in no_shift_areas:
+            offset = (offset << 3)
+            data_length = data_length << 3
+
         self.data_length = data_length
+
         packet = bytearray(4)
         packet[0:1] = struct.pack(">B", self.return_code)
         packet[1:2] = struct.pack(">B", self.transport_size)
         packet[2:4] = struct.pack(">H", self.data_length)
         packet.extend(payload)
-        self.parameters.send(function_code=5, item_count=1, payload=packet)
+
+        log.debug("{} sends:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(packet))
+
+
+        self.parameters.send(function_code=5, item_count=1, area=area, db=db, offset=offset,
+                             elements_count=elements_count, elements_type=elements_type, payload=packet)
 
     def recv(self):
         packet = self.parameters.recv()
+
+        # When doing a write request, the content of this packet is the error code of the operation
+        if len(packet) == 1:
+            self.return_code = struct.unpack(">B", packet[0:1])[0]
+            return self.return_code
+
         self.return_code = struct.unpack(">B", packet[0:1])[0]
         self.transport_size = struct.unpack(">B", packet[1:2])[0]
         self.data_length = struct.unpack(">H", packet[2:4])[0]
-        if self.transport_size not in (S7.ResultTransportSizes.TS_ResOctet,
-                                       S7.ResultTransportSizes.TS_ResReal,
-                                       S7.ResultTransportSizes.TS_ResBit):
+
+        # Adjust Offset
+        if self.transport_size not in (S7.TransportSizes.Octet,
+                                       S7.TransportSizes.Real,
+                                       S7.TransportSizes.Bit):
             self.data_length = self.data_length >> 3
 
-        log.debug("{} Response:".format(self.__class__.__name__))
+        log.debug("{} receives:".format(self.__class__.__name__))
         log.debug(utils.hex_log(packet))
-
 
         self.payload = packet[4:]
         return self.payload
 
 
+class Functions(object):
+    def __init__(self, socket, pdu_length):
+        self.functions = AreaTransferFunctions(socket)
+        self.pdu_length = pdu_length
+        self.socket = socket
 
+        self.transport_size = 0x00
+        self.num_elements = 0x0000
+        self.db_number = 0x0000
+        self.area_type = 0x00
+        self.area_offset = 0x000000 # 3 bytes in size
 
-class WriteAreaRequestItem(ProtocolObject):
-    def __init__(self):
-        super(WriteAreaRequestItem, self).__init__()
-        self.ReturnCode = 0x00
-        self.TransportSize = 0x00
-        self.DataLength = 0x0000
-        self.data = bytearray()
+    def read(self, area, db, start, num_elements, elements_type):
+        self.num_elements = num_elements
+        self.db_number = db
+        self.area_type = area
 
-    def from_bytes(self, b):
-        (
-            self.ReturnCode,
-            self.TransportSize,
-            self.DataLength,
-        ) = struct.unpack(">BBH", b[0:4])
-        self.data[:] = b[4:]
+        if area is S7.Area.CT:
+            elements_type = S7.DataTypes.Counter
+        if area is S7.Area.TM:
+            elements_type = S7.DataTypes.Timer
 
-    def to_bytes(self):
-        elements = (
-            self.ReturnCode,
-            self.TransportSize,
-            self.DataLength,
-        )
+        # Calc Word size
+        self.transport_size = S7.data_size(elements_type)
+        if self.transport_size == 0:
+            raise Exception("Invalid elements_type given")
+
+        tot_elements = num_elements
+        if elements_type == S7.DataTypes.Bit:
+            tot_elements = 1  # Only 1 bit can be transferred at time
+        else:
+            if (elements_type != S7.DataTypes.Counter) and (elements_type != S7.DataTypes.Timer):
+                tot_elements = tot_elements * self.transport_size
+                self.transport_size = 1
+                elements_type = S7.DataTypes.Byte
+
+        max_elements = (self.pdu_length - 18) // self.transport_size
+
         result = bytearray()
-        result.extend(struct.pack(">BBH", *elements))
-        result.extend(self.data)
+        while tot_elements > 0:
+            num_elements = min(tot_elements, max_elements)
+
+            area_offset = start
+
+            self.functions.send(function_code=4, area=self.area_type, db=self.db_number,offset=area_offset,
+                                elements_count=num_elements,elements_type=elements_type, payload=b'')
+
+            # Read with the response header
+            response_item = FunctionItem(self.socket)
+            response = response_item.recv()
+            result.extend(response)
+
+            tot_elements -= num_elements
+            start += num_elements * self.transport_size
+
         return result
 
-class WriteAreaRequestParameters(ProtocolObject):
-    def __init__(self, payload: WriteAreaRequestItem):
-        super(WriteAreaRequestParameters, self).__init__()
-        self.TransportSize = 0x00
-        self.Length = 0x0000
-        self.DBNumber = 0x0000
-        self.Area = 0x00
-        self.Address = 0x000000
-        self.payload = payload
+    def write(self, area, db, start, num_elements, elements_type, data):
 
-    def from_bytes(self, b):
-        (
-            self.TransportSize,
-            self.Length,
-            self.DBNumber,
-            self.Area,
-        ) = struct.unpack(">BBBBHHB", b[0:9])
-        tmp_address = bytearray(4)
-        tmp_address[1:4] = b[9:12]
-        self.Address = struct.unpack(">L", tmp_address)
-        self.payload.from_bytes(b[12:])
+        self.num_elements = num_elements
+        self.db_number = db
+        self.area_type = area
 
-    def to_bytes(self):
-        elements = (
-            self.var_spec,
-            self.remaining_bytes_len,
-            self.syntax_id,
-            self.TransportSize,
-            self.Length,
-            self.DBNumber,
-            self.Area,
-        )
-        result = bytearray()
-        result.extend(struct.pack(">BBBBHHB", *elements))
-        tmp_address = struct.pack(">L", self.Address)
-        result.extend(tmp_address[1:])
-        result.extend(self.payload.to_bytes())
-        return result
+        if area is S7.Area.CT:
+            elements_type = S7.DataTypes.Counter
+        if area is S7.Area.TM:
+            elements_type = S7.DataTypes.Timer
 
+        # Calc Word size
+        self.transport_size = S7.data_size(elements_type)
+        if self.transport_size == 0:
+            raise Exception("Invalid elements_type given")
 
-class WriteAreaRequest(ProtocolObject):
-    def __init__(self, payload: WriteAreaRequestParameters):
-        super(WriteAreaRequest, self).__init__()
-        self.FunWrite = 0x05
-        self.ItemsCount = 0x01
-        self.payload = payload
+        tot_elements = num_elements
+        if elements_type == S7.DataTypes.Bit:
+            tot_elements = 1  # Only 1 bit can be transferred at time
+        else:
+            if (elements_type != S7.DataTypes.Counter) and (elements_type != S7.DataTypes.Timer):
+                tot_elements = tot_elements * self.transport_size
+                self.transport_size = 1
+                elements_type = S7.DataTypes.Byte
 
-    def from_bytes(self, b):
-        if len(b) >= 2:
-            (
-                self.FunWrite,
-                self.ItemsCount,
-            ) = struct.unpack(">BB", b[0:2])
-            self.payload.from_bytes(b[2:])
+        max_elements = (self.pdu_length - 18) // self.transport_size
 
-    def to_bytes(self):
-        elements = (
-            self.FunWrite,
-            self.ItemsCount,
-        )
-        result = bytearray()
-        result.extend(struct.pack(">BB", *elements))
-        result.extend(self.payload.to_bytes())
-        return result
+        while tot_elements > 0:
+            num_elements = min(tot_elements, max_elements)
 
+            area_offset = start
 
-class WriteAreaResponse(ProtocolObject):
-    def __init__(self):
-        super(WriteAreaResponse, self).__init__()
-        self.FunWrite = 0x00
-        self.ItemCount = 0x00
-        self.Data = bytearray()
+            item = FunctionItem(self.socket)
+            item.send(
+                data_length=len(data),
+                area=area,
+                db=self.db_number,
+                offset=area_offset,
+                elements_count=num_elements,
+                elements_type=elements_type,
+                payload=data
+            )
 
-    def from_bytes(self, b):
-        if len(b) >= 2:
-            (
-                self.FunWrite,
-                self.ItemCount,
-            ) = struct.unpack(">BB", b[0:2])
-            self.Data = b[2:]
+            response_item = FunctionItem(self.socket)
+            result = response_item.recv()
 
-    def to_bytes(self):
-        elements = (
-            self.FunWrite,
-            self.ItemCount,
-        )
-        result = bytearray()
-        result.extend(struct.pack(">BB", *elements))
-        result.extend(self.Data)
-        return result
+            tot_elements -= num_elements
+            start += num_elements * self.transport_size
+
+        return

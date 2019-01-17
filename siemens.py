@@ -196,39 +196,6 @@ class S7Client(object):
     def __del__(self):
         self.disconnect()
 
-    def TCPConnect(self, address, port=102, timeout=2):
-        try:
-            self.Socket = socket.socket()
-            self.Socket.settimeout(timeout)
-            self.Socket.connect((address, port))
-        except socket.timeout:
-            raise TcpConnectionTimeoutError
-
-        except Exception as e:
-            log.error("TCP Connection Failed IP: {}, Port: {}".format(address, port))
-            utils.log_error(e)
-            raise TcpConnectionFailedError
-
-    def RecvPacket(self, size):
-        try:
-            received_data = self.Socket.recv(size)
-            return received_data
-        except Exception as e:
-            log.error("Unable to receive data, see next message for details")
-            utils.log_error(e)
-            raise TcpNotConnectedError
-
-    def SendPacket(self, Buffer, Len=0):
-        try:
-            if Len == 0:
-                self.Socket.send(Buffer)
-            else:
-                self.Socket.send(Buffer[0:Len])
-        except Exception as e:
-            log.error("Unable to send data, see next message for details")
-            utils.log_error(e)
-            raise TcpNotConnectedError
-
     def RecvISOPacket(self, packet):
         Done = False
         Size = 0
@@ -283,9 +250,19 @@ class S7Client(object):
             raise CliFunctionRefusedError
 
     def ConnectTo(self, address, port=102, timeout=2, rack=0, slot=2, pdu_size=480):
-        remote_tsap = (self.ConnectionType << 8) + (rack * 0x20) + slot
-        self.TCPConnect(address=address,port=port, timeout=timeout)
+        try:
+            self.Socket = socket.socket()
+            self.Socket.settimeout(timeout)
+            self.Socket.connect((address, port))
+        except socket.timeout:
+            raise TcpConnectionTimeoutError
 
+        except Exception as e:
+            log.error("TCP Connection Failed IP: {}, Port: {}".format(address, port))
+            utils.log_error(e)
+            raise TcpConnectionFailedError
+
+        remote_tsap = (self.ConnectionType << 8) + (rack * 0x20) + slot
         con_req = telegrams.CoptParams(self.Socket)
         result = con_req.iso_connection_request(local_tsap=0x0100, remote_tsap=remote_tsap)
         log.info("ISO Connection Request result: {}".format(result))
@@ -304,105 +281,13 @@ class S7Client(object):
         self.Socket.close()
 
     def ReadArea(self, area, db, start, num_elements, elements_type):
-        read_area = telegrams.AreaTransferFunctions(self.Socket, self.pdu_length)
+        read_area = telegrams.Functions(self.Socket, self.pdu_length)
         return read_area.read(area=area, db=db, start=start, num_elements=num_elements, elements_type=elements_type)
 
 
     def WriteArea(self, Area, DBNumber, Start, Amount, WordLen, Buffer):
-        Offset = 0
-        self.Time_ms = 0
-        Elapsed = time.monotonic()
-
-        # Some adjustment
-        if Area == S7.Area.MK:
-            WordLen = S7.DataTypes.Counter
-        if Area == S7.Area.TM:
-            WordLen = S7.DataTypes.Timer
-
-        # Calc Word size
-        WordSize = S7.DataSizeByte(WordLen)
-        if WordSize == 0:
-            raise CliInvalidWordLenError
-        if WordLen == S7.DataTypes.Bit: # Only 1 bit can be transferred at time
-            Amount = 1
-        else:
-            if (WordLen != S7.DataTypes.Counter) and (WordLen != S7.DataTypes.Timer):
-                Amount = Amount * WordSize
-                WordSize = 1
-                WordLen = S7.DataTypes.Byte
-
-        MaxElements = (480 - 35) // WordSize # 35 = Reply telegram header
-        TotElements = Amount
-
-        while TotElements > 0:
-            NumElements = TotElements
-            if NumElements > MaxElements:
-                NumElements = MaxElements
-
-            DataSize = NumElements * WordSize
-
-            write_request_item = telegrams.WriteAreaRequestItem()
-            write_request_item.DataLength = NumElements
-
-            # Adjusts Start and word length
-            if (WordLen == S7.DataTypes.Bit) or (WordLen == S7.DataTypes.Counter) or (WordLen == S7.DataTypes.Timer):
-                Address = Start
-                Length = DataSize
-            else:
-                Address = Start << 3
-                Length = DataSize << 3
-            write_request_item.DataLength = Length
-
-            # Transport Size
-            if WordLen == S7.DataTypes.Bit:
-                write_request_item.TransportSize = self.TS_ResBit
-            elif WordLen == S7.DataTypes.Counter:
-                write_request_item.TransportSize = self.TS_ResOctet
-            elif WordLen == S7.DataTypes.Timer:
-                write_request_item.TransportSize = self.TS_ResOctet
-            else:
-                write_request_item.TransportSize = self.TS_ResByte
-
-            write_request_item.data[:] = Buffer
-
-            write_request_params = telegrams.WriteAreaRequestParameters(write_request_item)
-            write_request_params.Address = Address
-            write_request_params.DBNumber = DBNumber
-            write_request_params.Length = NumElements
-            write_request_params.Area = Area
-            write_request_params.TransportSize = WordLen
-
-            write_request = telegrams.WriteAreaRequest(write_request_params)
-
-            s7_request_header = telegrams.S7ReqHeader(write_request)
-            s7_request_header.DataLen = WordSize * NumElements + 4
-            cotp_request = telegrams.COTP_DT(s7_request_header)
-            packet_request = telegrams.TPKT(cotp_request)
-
-            self.SendPacket(packet_request.to_bytes())
-            print(utils.hex_log(packet_request.to_bytes()))
-
-            write_response = telegrams.WriteAreaResponse()
-            s7_response = telegrams.S7ResponseHeader23(write_response)
-            cotp_response = telegrams.COTP_DT(s7_response)
-            packet_response = telegrams.TPKT(cotp_response)
-
-            self.RecvISOPacket(packet_response)
-            print(utils.hex_log(packet_response.to_bytes()))
-
-
-            # if packet_response.length == 22:
-            #     if s7_response.  self.PDU[21] != 0xFF:
-            #         self.__cpu_error(self.PDU[21])
-            # else:
-            #     raise IsoInvalidPduError
-
-            Offset += DataSize
-            TotElements -= NumElements
-            Start += NumElements * WordSize
-
-        self.BytesWritten = Offset
-        self.Time_ms = time.monotonic() - Elapsed
+        write_area = telegrams.Functions(self.Socket, self.pdu_length)
+        write_area.write(area=Area, db=DBNumber, start=Start,num_elements=Amount,elements_type=WordLen,data=Buffer)
 
     def ReadMultiVars(self, Items, ItemsCount):
         S7Item = bytearray(12)
@@ -494,29 +379,30 @@ class S7Client(object):
     def DBWrite(self, DBNumber, Start, Size, Buffer):
         return self.WriteArea(S7.Area.DB, DBNumber, Start, Size, S7.DataTypes.Byte, Buffer)
 
-    def MBRead(self, Start, Size, Buffer):
-        return self.ReadArea(S7.Area.MK, 0, Start, Size, S7.DataTypes.Byte, Buffer)
+    def MBRead(self, Start, Size):
+        return self.ReadArea(S7.Area.MK, 0, Start, Size, S7.DataTypes.Byte)
 
     def MBWrite(self, Start, Size, Buffer):
         return self.WriteArea(S7.Area.MK, 0, Start, Size, S7.DataTypes.Byte, Buffer)
 
-    def EBRead(self, Start, Size, Buffer):
-        return self.ReadArea(S7.Area.PE, 0, Start, Size, S7.DataTypes.Byte, Buffer)
+    def EBRead(self, Start, Size):
+        return self.ReadArea(S7.Area.PE, 0, Start, Size, S7.DataTypes.Byte)
 
     def EBWrite(self, Start, Size, Buffer):
         return self.WriteArea(S7.Area.PE, 0, Start, Size, S7.DataTypes.Byte, Buffer)
 
-    def ABRead(self, Start, Size, Buffer):
-        return self.ReadArea(S7.Area.PA, 0, Start, Size, S7.DataTypes.Byte, Buffer)
+    def ABRead(self, Start, Size):
+        return self.ReadArea(S7.Area.PA, 0, Start, Size, S7.DataTypes.Byte)
 
     def ABWrite(self, Start, Size, Buffer):
         return self.WriteArea(S7.Area.PA, 0, Start, Size, S7.DataTypes.Byte, Buffer)
 
-    def TMRead(self, Start, Amount, Buffer):
-        sBuffer = bytearray(Amount * 2)
-        self.ReadArea(S7.Area.TM, 0, Start, Amount, S7.DataTypes.Timer, sBuffer)
+    def TMRead(self, Start, Amount):
+        raw_buffer =  self.ReadArea(S7.Area.TM, 0, Start, Amount, S7.DataTypes.Timer)
         for c in range(0, Amount):
-            Buffer[c] = ((sBuffer[c * 2 + 1] << 8) + (sBuffer[c * 2]))
+            buffer[c] = ((raw_buffer[c * 2 + 1] << 8) + (raw_buffer[c * 2]))
+
+        return buffer
 
     def TMWrite(self, Start, Amount, Buffer):
         sBuffer = bytearray(Amount * 2)
@@ -526,11 +412,12 @@ class S7Client(object):
 
         self.WriteArea(S7.Area.TM, 0, Start, Amount, S7.DataTypes.Timer, sBuffer)
 
-    def CTRead(self, Start, Amount, Buffer):
-        sBuffer = bytearray(Amount * 2)
-        self.ReadArea(S7.Area.CT, 0, Start, Amount, S7.DataTypes.Counter, sBuffer)
+    def CTRead(self, Start, Amount):
+        sBuffer = self.ReadArea(S7.Area.CT, 0, Start, Amount, S7.DataTypes.Counter)
         for c in range(0, Amount):
             Buffer[c] = ((sBuffer[c * 2 + 1] << 8) + (sBuffer[c * 2]))
+
+        return Buffer
 
     def CTWrite(self, Start, Amount, Buffer):
         sBuffer = bytearray(Amount * 2)

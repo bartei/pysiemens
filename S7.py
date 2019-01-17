@@ -25,12 +25,12 @@ class DataTypes(object):
     Counter = 0x1C
     Timer = 0x1D
 
-class ResultTransportSizes(object):
-    TS_ResBit = 0x03
-    TS_ResByte = 0x04
-    TS_ResInt = 0x05
-    TS_ResReal = 0x07
-    TS_ResOctet = 0x09
+class TransportSizes(object):
+    Bit = 0x03
+    Byte = 0x04
+    Int = 0x05
+    Real = 0x07
+    Octet = 0x09
 
 def BCDtoByte(B):
     return ((B >> 4) * 10) + (B & 0x0F)
@@ -65,6 +65,15 @@ def data_size(data_type):
         return 2
     else:
         return 0
+
+# Transport Size
+def transport_size(data_type):
+    if data_type is DataTypes.Bit:
+        return TransportSizes.Bit
+    elif data_type in [DataTypes.Counter, DataTypes.Timer]:
+        return TransportSizes.Octet
+    else:
+        return TransportSizes.Byte
 
 def GetBitAt(Buffer, Pos, Bit):
     Bit = min(Bit, 7)
