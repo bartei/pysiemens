@@ -169,6 +169,7 @@ class CotpControlTransport(object):
         self.tpkt.send(packet)
 
     def recv(self):
+        self.tpkt.recv()
         packet = self.tpkt.data
         self.h_length = struct.unpack(">B", packet[0:1])[0]
         self.pdu_type = struct.unpack(">B", packet[1:2])[0]
@@ -233,7 +234,7 @@ class S7Header(object):
         self.data_len = len(data)
 
         self.parameters[:] = parameters
-        self.data = data[:] = data
+        self.data = data
 
         packet = bytearray(10)
         packet[0:1] = struct.pack(">B", self.p)
@@ -265,8 +266,8 @@ class S7Header(object):
         self.data_len = struct.unpack(">H", packet[8:10])[0]
         self.error = struct.unpack(">H", packet[10:12])[0]
 
-        self.parameters[:] = packet[12:12+self.par_len]
-        self.data[:] = packet[12+self.par_len:12+self.par_len+self.data_len]
+        self.parameters = packet[12:12+self.par_len]
+        self.data = packet[12+self.par_len:12+self.par_len+self.data_len]
 
 
 class NegotiateParams(object):
@@ -339,15 +340,19 @@ class AreaFunctionRequest(object):
         log.debug(utils.hex_log(packet))
 
         packet.extend(parameters)
-        par_len = len(packet)
-        packet.extend(data)
-        self.s7.send(data=packet, par_len=par_len, data_len=len(data))
+        self.s7.send(parameters=parameters, data=data)
 
     def recv(self):
-        packet = self.s7.recv()
-        log.debug("{} recv packet:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(packet))
-        return packet
+        self.s7.recv()
+        parameters = self.s7.parameters
+        data = self.s7.data
+        log.debug("{} recv parameters:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(parameters))
+
+        log.debug("{} recv data:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(data))
+
+        return data
 
 
 class AreaTransferFunctions(object):
