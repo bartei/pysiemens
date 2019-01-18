@@ -5,6 +5,7 @@ import S7
 
 log = logging.getLogger(__file__)
 
+
 class PduTypes(object):
     ConnectionRequest = 0xE0
     ConnectionConfirm = 0xD0
@@ -18,6 +19,7 @@ class PduTypes(object):
     Reject = 0x50
     AckData = 0x70
 
+
 class PduSizeValues(object):
     Size_128 = 0x07
     Size_256 = 0x08
@@ -26,6 +28,7 @@ class PduSizeValues(object):
     Size_2048 = 0x0B
     Size_4096 = 0x0C
     Size_8192 = 0x0D
+
 
 class PduFunctions(object):
     pduResponse = 0x02  # Response (when error)
@@ -60,40 +63,38 @@ class TpktTransport(object):
     def __init__(self, socket):
         self.socket = socket
         self.length = 0
-        self.payload = bytearray()
+        self.data = bytearray()
 
-    def send(self, payload, version=3, reserved=0):
+    def send(self, data, version=3, reserved=0):
         packet = bytearray(4)
         packet[0:1] = struct.pack(">B", version)
         packet[1:2] = struct.pack(">B", reserved)
-        self.length = len(packet) + len(payload)
+        self.length = len(packet) + len(data)
         packet[2:4] = struct.pack(">H", self.length)
 
-        log.debug("TPKT Send Header:")
+        log.debug("{} sends header:".format(self.__class__.__name__))
         log.debug(utils.hex_log(packet))
 
-        self.payload = payload
-        packet.extend(self.payload)
+        self.data = data
+        packet.extend(self.data)
 
-        log.debug("TPKT Full Packet:")
+        log.debug("{} sends full packet:".format(self.__class__.__name__))
         log.debug(utils.hex_log(packet))
 
         self.socket.send(packet)
 
     def recv(self):
-        header = self.socket.recv(4)
-        self.length = struct.unpack(">H", header[2:4])[0]
+        packet = self.socket.recv(4)
+        self.length = struct.unpack(">H", packet[2:4])[0]
 
-        log.debug("TPKT Recv Header:")
-        log.debug(utils.hex_log(header))
+        log.debug("{} receives header:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(packet))
 
+        self.data[:] = self.socket.recv(self.length)
 
-        self.payload[:] = self.socket.recv(self.length)
+        log.debug("{} receives data:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(self.data))
 
-        log.debug("TPKT Recv Full Payload:")
-        log.debug(utils.hex_log(self.payload))
-
-        return self.payload
 
 class CoptParams(object):
     def __init__(self, socket):
@@ -119,7 +120,7 @@ class CoptParams(object):
         else:
             return False
 
-    def send(self,tsap, pdu_type, pdu_size_code=0xC0, pdu_size_len=0x01, pdu_size_val=PduSizeValues.Size_2048):
+    def send(self, tsap, pdu_type, pdu_size_code=0xC0, pdu_size_len=0x01, pdu_size_val=PduSizeValues.Size_2048):
         packet = bytearray(3)
         packet[0:1] = struct.pack(">B", pdu_size_code)
         packet[1:2] = struct.pack(">B", pdu_size_len)
@@ -134,6 +135,7 @@ class CoptParams(object):
     def recv(self):
         response = self.cotp.recv()
         return response
+
 
 class CotpControlTransport(object):
     def __init__(self, socket):
@@ -166,9 +168,8 @@ class CotpControlTransport(object):
         packet.extend(copt_params)
         self.tpkt.send(packet)
 
-
     def recv(self):
-        packet = self.tpkt.recv()
+        packet = self.tpkt.data
         self.h_length = struct.unpack(">B", packet[0:1])[0]
         self.pdu_type = struct.unpack(">B", packet[1:2])[0]
         self.dst_ref = struct.unpack(">H", packet[2:4])[0]
@@ -176,14 +177,18 @@ class CotpControlTransport(object):
         self.co_r = struct.unpack(">B", packet[6:7])[0]
         return packet[7:]
 
+
 class CotpDataTransport(object):
     def __init__(self, socket):
         self.tpkt = TpktTransport(socket)
         self.h_length = 2
         self.pdu_type = PduTypes.DataTransfer
         self.eot_num = 0x80
+        self.data = bytearray()
 
-    def send(self, payload):
+    def send(self, data):
+        self.data = data
+
         packet = bytearray(3)
         packet[0:1] = struct.pack(">B", self.h_length)
         packet[1:2] = struct.pack(">B", self.pdu_type)
@@ -192,17 +197,19 @@ class CotpDataTransport(object):
         log.debug("{} Header:".format(self.__class__.__name__))
         log.debug(utils.hex_log(packet))
 
-        packet.extend(payload)
+        packet.extend(self.data)
         self.tpkt.send(packet)
 
     def recv(self):
-        packet = self.tpkt.recv()
+        self.tpkt.recv()
+        packet = self.tpkt.data
         self.h_length = struct.unpack(">B", packet[0:1])[0]
         self.pdu_type = struct.unpack(">B", packet[1:2])[0]
         self.eot_num = struct.unpack(">B", packet[2:3])[0]
-        return packet[3:]
+        self.data[:] = packet[3:]
 
-class S7Response23(object):
+
+class S7Header(object):
     def __init__(self, socket):
         self.cotp = CotpDataTransport(socket)
 
@@ -214,32 +221,38 @@ class S7Response23(object):
         self.data_len = 0  # Length of data which follow the parameters
         self.error = 0x00
 
-    def send(self, data, par_len, data_len, p=0x32, pdu_type=1, ab_ex=0, sequence=0x0500):
+        self.parameters = bytearray()
+        self.data = bytearray()
+
+    def send(self, parameters, data, p=0x32, pdu_type=1, ab_ex=0, sequence=0x0500):
         self.p = p
         self.pdu_type = pdu_type
         self.ab_ex = ab_ex
         self.sequence = sequence
-        self.par_len = par_len
-        self.data_len = data_len
-        self.error = 0x0000
+        self.par_len = len(parameters)
+        self.data_len = len(data)
+
+        self.parameters[:] = parameters[:]
+        self.data = data[:] = data[:]
 
         packet = bytearray(10)
         packet[0:1] = struct.pack(">B", self.p)
         packet[1:2] = struct.pack(">B", self.pdu_type)
         packet[2:4] = struct.pack(">H", self.ab_ex)
         packet[4:6] = struct.pack(">H", self.sequence)
-        packet[6:8] = struct.pack(">H", self.par_len)
-        packet[8:10] = struct.pack(">H", self.data_len)
-        # packet[10:12] = struct.pack(">H", self.error)
+        packet[6:8] = struct.pack(">H", len(self.parameters))
+        packet[8:10] = struct.pack(">H", len(self.data))
 
         log.debug("{} Header:".format(self.__class__.__name__))
         log.debug(utils.hex_log(packet))
 
-        packet.extend(data)
+        packet.extend(self.parameters)
+        packet.extend(self.data)
         self.cotp.send(packet)
 
     def recv(self):
-        packet = self.cotp.recv()
+        self.cotp.recv()
+        packet = self.cotp.data
 
         log.debug("{} Response:".format(self.__class__.__name__))
         log.debug(utils.hex_log(packet))
@@ -252,12 +265,14 @@ class S7Response23(object):
         self.data_len = struct.unpack(">H", packet[8:10])[0]
         self.error = struct.unpack(">H", packet[10:12])[0]
 
-        return packet[12:]
+        self.parameters[:] = packet[12:12+self.par_len]
+        self.data[:] = packet[12+self.par_len:12+self.par_len+self.data_len]
+
 
 class NegotiateParams(object):
     def __init__(self, socket):
-        self.s7 = S7Response23(socket)
-        self.fun_negotiate = PduFunctions.pduNegotiate
+        self.s7 = S7Header(socket)
+        self.function = PduFunctions.pduNegotiate
         self.unknown = 0
         self.parallel_jobs_1 = 0x0001
         self.parallel_jobs_2 = 0x0001
@@ -268,7 +283,7 @@ class NegotiateParams(object):
         self.pdu_length = pdu_length
 
         packet = bytearray(8)
-        packet[0:1] = struct.pack(">B", self.fun_negotiate)
+        packet[0:1] = struct.pack(">B", self.function)
         packet[1:2] = struct.pack(">B", self.unknown)
         packet[2:4] = struct.pack(">H", self.parallel_jobs_1)
         packet[4:6] = struct.pack(">H", self.parallel_jobs_2)
@@ -277,24 +292,31 @@ class NegotiateParams(object):
         log.debug("{} Header:".format(self.__class__.__name__))
         log.debug(utils.hex_log(packet))
 
-        self.s7.send(packet, par_len=len(packet), data_len=0)
+        self.s7.send(parameters=packet, data=bytearray(0))
 
-        response = self.s7.recv()
-        log.debug("Parameters negotiation response:")
-        log.debug(utils.hex_log(response))
+        self.s7.recv()
+        res_header = self.s7.parameters
+        res_data = self.s7.data
 
-        self.fun_negotiate = struct.unpack(">B", packet[0:1])[0]
-        self.unknown = struct.unpack(">B", packet[1:2])[0]
-        self.parallel_jobs_1 = struct.unpack(">H", packet[2:4])[0]
-        self.parallel_jobs_2 = struct.unpack(">H", packet[4:6])[0]
-        self.negotiated_pdu_length = struct.unpack(">H", packet[6:8])[0]
+        log.debug("{} Response Header:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(res_header))
+
+        log.debug("{} Response Header:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(res_data))
+
+        self.function = struct.unpack(">B", res_header[0:1])[0]
+        self.unknown = struct.unpack(">B", res_header[1:2])[0]
+        self.parallel_jobs_1 = struct.unpack(">H", res_header[2:4])[0]
+        self.parallel_jobs_2 = struct.unpack(">H", res_header[4:6])[0]
+        self.negotiated_pdu_length = struct.unpack(">H", res_header[6:8])[0]
 
         return self.negotiated_pdu_length == self.pdu_length
 
+
 class AreaFunctionRequest(object):
     def __init__(self, socket):
-        self.s7 = S7Response23(socket)
-        self.function = 4 # 4 read, 5 write
+        self.s7 = S7Header(socket)
+        self.function = 4  # 4 read, 5 write
         self.items_count = 1
         self.var_spec = 0x12
         self.remaining_bytes_len = 0x0a
