@@ -232,8 +232,8 @@ class S7Header(object):
         self.par_len = len(parameters)
         self.data_len = len(data)
 
-        self.parameters[:] = parameters[:]
-        self.data = data[:] = data[:]
+        self.parameters[:] = parameters
+        self.data = data[:] = data
 
         packet = bytearray(10)
         packet[0:1] = struct.pack(">B", self.p)
