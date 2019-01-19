@@ -270,7 +270,7 @@ class S7Header(object):
         self.data = packet[12+self.par_len:12+self.par_len+self.data_len]
 
 
-class NegotiateParams(object):
+class S7NegotiateParams(object):
     def __init__(self, socket):
         self.s7 = S7Header(socket)
         self.function = PduFunctions.pduNegotiate
@@ -314,6 +314,69 @@ class NegotiateParams(object):
         return self.negotiated_pdu_length == self.pdu_length
 
 
+class S7ReadAreaRequest(object):
+    def __init__(self, socket):
+        self.socket = socket
+        self.data = bytearray()
+
+        # Return Function Data Header
+        self.function_code = 0x00
+        self.item_count = 0x00
+
+        self.return_code = 0x00
+        self.transport_size = 0x00
+        self.data_length = 0x0000
+
+    def read_raw(self, area, db, offset, elements_count, elements_type):
+        function_request = 0x04
+        items_count = 1
+        var_spec = 0x12
+        remaining_bytes_len = 0x0a
+        syntax_id = 0x10
+
+        parameters = bytearray()
+        parameters.extend(struct.pack(">B", function_request))
+
+        parameters.extend(struct.pack(">B", items_count))
+        parameters.extend(struct.pack(">B", var_spec))
+        parameters.extend(struct.pack(">B", remaining_bytes_len))
+        parameters.extend(struct.pack(">B", syntax_id))
+
+        parameters.extend(struct.pack(">B", elements_type))
+        parameters.extend(struct.pack(">H", elements_count))
+        parameters.extend(struct.pack(">H", db))
+        parameters.extend(struct.pack(">B", area))
+        parameters.extend(struct.pack(">L", offset)[1:4])
+
+        log.debug("{} sends parameters:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(parameters))
+
+        request = S7Header(socket=self.socket)
+        request.send(parameters=parameters, data=bytearray(0))
+
+        response = S7Header(socket=self.socket)
+        response.recv()
+
+        # Read the response parameters
+        self.function_code = struct.unpack(">B", response.parameters[0:1])[0]
+        self.item_count = struct.unpack(">B", response.parameters[1:2])[0]
+
+        # Read the response item
+        self.return_code = struct.unpack(">B", response.data[0:1])[0]
+        self.transport_size = struct.unpack(">B", response.data[1:2])[0]
+        self.data_length = struct.unpack(">H", response.data[2:4])[0]
+
+        # Adjust Offset
+        if self.transport_size not in (S7.TransportSizes.Octet,
+                                       S7.TransportSizes.Real,
+                                       S7.TransportSizes.Bit):
+            self.data_length = self.data_length >> 3
+
+        self.data = response.data[4:]
+
+
+
+
 class AreaFunctionRequest(object):
     def __init__(self, socket):
         self.s7 = S7Header(socket)
@@ -323,24 +386,30 @@ class AreaFunctionRequest(object):
         self.remaining_bytes_len = 0x0a
         self.syntax_id = 0x10
 
-    def send(self, function, parameters, data):
-        self.function = function
+    def send(self, area, db, offset, elements_count, elements_type):
+        self.function = 0x04
         self.items_count = 1
         self.var_spec = 0x12
         self.remaining_bytes_len = 0x0a
         self.syntax_id = 0x10
-        packet = bytearray(5)
-        packet[0:1] = struct.pack(">B", self.function)
-        packet[1:2] = struct.pack(">B", self.items_count)
-        packet[2:3] = struct.pack(">B", self.var_spec)
-        packet[3:4] = struct.pack(">B", self.remaining_bytes_len)
-        packet[4:5] = struct.pack(">B", self.syntax_id)
 
-        log.debug("{} sends:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(packet))
+        parameters = bytearray(14)
+        parameters[0:1] = struct.pack(">B", self.function)
+        parameters[1:2] = struct.pack(">B", self.items_count)
+        parameters[2:3] = struct.pack(">B", self.var_spec)
+        parameters[3:4] = struct.pack(">B", self.remaining_bytes_len)
+        parameters[4:5] = struct.pack(">B", self.syntax_id)
 
-        packet.extend(parameters)
-        self.s7.send(parameters=parameters, data=data)
+        parameters[5:6] = struct.pack(">B", elements_type)
+        parameters[6:8] = struct.pack(">H", elements_count)
+        parameters[8:10] = struct.pack(">H", db)
+        parameters[10:11] = struct.pack(">B", area)
+        parameters[11:14] = struct.pack(">L", offset)[1:4]
+
+        log.debug("{} sends parameters:".format(self.__class__.__name__))
+        log.debug(utils.hex_log(parameters))
+
+        self.s7.send(parameters=parameters, data=bytearray(0))
 
     def recv(self):
         self.s7.recv()
@@ -406,7 +475,6 @@ class FunctionParameters(object):
         log.debug("{} sends:".format(self.__class__.__name__))
         log.debug(utils.hex_log(packet))
 
-
         self.transfer_runctions.send(function_code=function_code, area=area, db=db, offset=offset,
                                      elements_count=elements_count, elements_type=elements_type, payload=payload)
 
@@ -420,6 +488,7 @@ class FunctionParameters(object):
 
         return packet[2:]
 
+
 class FunctionItem(object):
     def __init__(self, socket):
         self.parameters = FunctionParameters(socket)
@@ -431,7 +500,7 @@ class FunctionItem(object):
 
     def send(self, data_length, area, db, offset, elements_count, elements_type, payload):
         self.return_code = 0x00
-        self.transport_size =  S7.transport_size(elements_type)
+        self.transport_size = S7.transport_size(elements_type)
 
         # Adjust offset and data length
         no_shift_areas = (
@@ -453,7 +522,6 @@ class FunctionItem(object):
 
         log.debug("{} sends:".format(self.__class__.__name__))
         log.debug(utils.hex_log(packet))
-
 
         self.parameters.send(function_code=5, item_count=1, area=area, db=db, offset=offset,
                              elements_count=elements_count, elements_type=elements_type, payload=packet)
@@ -526,14 +594,12 @@ class Functions(object):
             num_elements = min(tot_elements, max_elements)
 
             area_offset = start
-
-            self.functions.send(function_code=4, area=self.area_type, db=self.db_number,offset=area_offset,
-                                elements_count=num_elements,elements_type=elements_type, payload=b'')
+            read = S7ReadAreaRequest(self.socket)
+            read.read_raw(area=self.area_type, db=self.db_number, offset=area_offset, elements_count=num_elements,
+                          elements_type=elements_type)
 
             # Read with the response header
-            response_item = FunctionItem(self.socket)
-            response = response_item.recv()
-            result.extend(response)
+            result.extend(read.data)
 
             tot_elements -= num_elements
             start += num_elements * self.transport_size

@@ -267,7 +267,7 @@ class S7Client(object):
         result = con_req.iso_connection_request(local_tsap=0x0100, remote_tsap=remote_tsap)
         log.info("ISO Connection Request result: {}".format(result))
 
-        negotiation = telegrams.NegotiateParams(self.Socket)
+        negotiation = telegrams.S7NegotiateParams(self.Socket)
         result = negotiation.negotiate(pdu_size)
         self.pdu_length = negotiation.negotiated_pdu_length
 
