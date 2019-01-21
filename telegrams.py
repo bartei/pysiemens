@@ -365,47 +365,84 @@ class S7Functions(object):
         return result
 
     def read_raw(self, area, db, offset, elements_count, elements_type):
-        function_request = self.pdu_functions["pduFuncRead"]
-        items_count = 1
+        # Calc Word size
+        transport_size = S7.data_size(elements_type)
+        if transport_size == 0:
+            raise Exception("Invalid elements_type given")
 
-        parameters = bytearray()
-        parameters.extend(struct.pack(">B", function_request))
+        tot_elements = elements_count
+        if elements_type == S7.DataTypes.Bit:
+            tot_elements = 1  # Only 1 bit can be transferred at time
+        else:
+            if (elements_type != S7.DataTypes.Counter) and (elements_type != S7.DataTypes.Timer):
+                tot_elements = tot_elements * transport_size
+                transport_size = 1
+                elements_type = S7.DataTypes.Byte
 
-        parameters.extend(struct.pack(">B", items_count))
-        parameters.extend(struct.pack(">B", 0x12))
-        parameters.extend(struct.pack(">B", 0x0a))
-        parameters.extend(struct.pack(">B", 0x10))
+        max_elements = (self.pdu_length - 18) // transport_size
 
-        parameters.extend(struct.pack(">B", elements_type))
-        parameters.extend(struct.pack(">H", elements_count))
-        parameters.extend(struct.pack(">H", db))
-        parameters.extend(struct.pack(">B", area))
-        parameters.extend(struct.pack(">L", self.shift_value(offset, elements_type))[1:4])
+        result = list()
+        data = bytearray()
+        full_length = 0
+        while tot_elements > 0:
+            num_elements = min(tot_elements, max_elements)
+            area_offset = offset
 
-        log.debug("{} sends parameters:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(parameters))
+            function_request = self.pdu_functions["pduFuncRead"]
+            items_count = 1
 
-        request = S7Header(socket=self.socket)
-        request.send(parameters=parameters, data=bytearray(0))
+            parameters = bytearray()
+            parameters.extend(struct.pack(">B", function_request))
 
-        response = S7Header(socket=self.socket)
-        response.recv()
+            parameters.extend(struct.pack(">B", items_count))
+            parameters.extend(struct.pack(">B", 0x12))
+            parameters.extend(struct.pack(">B", 0x0a))
+            parameters.extend(struct.pack(">B", 0x10))
 
-        result = dict()
+            parameters.extend(struct.pack(">B", elements_type))
+            parameters.extend(struct.pack(">H", num_elements))
+            parameters.extend(struct.pack(">H", db))
+            parameters.extend(struct.pack(">B", area))
+            parameters.extend(struct.pack(">L", self.shift_value(area_offset, elements_type))[1:4])
 
-        # Check for errors
-        if response.error != 0:
-            result['data'] = b''
-            result['s7_error'] = response.error
-            return result
+            log.debug("{} sends parameters:".format(self.__class__.__name__))
+            log.debug(utils.hex_log(parameters))
 
-        # Transport Size
-        transport_size = struct.unpack(">B", response.data[1:2])[0]
+            request = S7Header(socket=self.socket)
+            request.send(parameters=parameters, data=bytearray(0))
 
-        # Adjust Data Length
-        data_length = struct.unpack(">H", response.data[2:4])[0]
-        data_length = self.unshift_value(data_length, elements_type)
+            response = S7Header(socket=self.socket)
+            response.recv()
 
+            result = dict()
+
+            # Check for errors
+            if response.error != 0:
+                result['data'] = b''
+                result['s7_error'] = response.error
+                return result
+
+            # Transport Size
+            # transport_size = struct.unpack(">B", response.data[1:2])[0]
+
+            # Adjust Data Length
+            data_length = struct.unpack(">H", response.data[2:4])[0]
+            data_length = self.unshift_value(data_length, elements_type)
+
+
+            # # Read the response parameters
+            # result['function'] = struct.unpack(">B", response.parameters[0:1])[0]
+            # result['item_count'] = struct.unpack(">B", response.parameters[1:2])[0]
+            #
+            # # Read the response item
+            # result['return_code'] = struct.unpack(">B", response.data[0:1])[0]
+            # result['transport_size'] = transport_size
+            full_length += data_length
+            # result['adjusted_data_length'] = struct.unpack(">H", response.data[2:4])[0]
+            data.extend(response.data[4:])
+
+            tot_elements -= num_elements
+            offset += num_elements * transport_size
 
         # Read the response parameters
         result['function'] = struct.unpack(">B", response.parameters[0:1])[0]
@@ -414,9 +451,9 @@ class S7Functions(object):
         # Read the response item
         result['return_code'] = struct.unpack(">B", response.data[0:1])[0]
         result['transport_size'] = transport_size
-        result['data_length'] = data_length
+        result['data_length'] = full_length
         result['adjusted_data_length'] = struct.unpack(">H", response.data[2:4])[0]
-        result['data'] = response.data[4:]
+        result['data'] = data
 
         return result
 
@@ -440,7 +477,7 @@ class S7Functions(object):
                 transport_size = 1
                 elements_type = S7.DataTypes.Byte
 
-        max_elements = (self.pdu_length - 18) // transport_size
+        max_elements = (self.pdu_length - 22) // transport_size
 
         result = list()
         while tot_elements > 0:
@@ -471,7 +508,7 @@ class S7Functions(object):
             packet.extend(struct.pack(">B", return_code))
             packet.extend(struct.pack(">B", transport_size))
             packet.extend(struct.pack(">H", self.shift_value(num_elements, elements_type)))
-            packet.extend(data)
+            packet.extend(data[area_offset:area_offset+num_elements])
 
             log.debug("{} sends:".format(self.__class__.__name__))
             log.debug(utils.hex_log(packet))

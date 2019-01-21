@@ -5,9 +5,9 @@ import utils
 import logging
 log = utils.get_logging(script__file__=__file__,verbose=True, level=logging.INFO)
 
-client = siemens.S7Client(address='10.1.2.69', port=102, rack=0, slot=2, pdu_length=120)
+client = siemens.S7Client(address='10.1.2.69', port=102, rack=0, slot=2, pdu_length=480)
 
-Buffer = client.DBRead(1, 0, 90)
+Buffer = client.DBRead(1, 0, 190)
 print(S7.GetDIntAt(Buffer, 2))
 print(S7.GetTODAt(Buffer, 76))
 print(S7.GetDateAt(Buffer, 70))
@@ -27,8 +27,8 @@ S7.SetFloatAt(Buffer, 66, 123.456789)
 
 S7.SetDateTimeAt(Buffer, 58, datetime.datetime.now())
 S7.SetDateAt(Buffer, 70, datetime.date(year=2020, month=12, day=15))
-Buffer[80:85] = b'MERDA'
-result = client.DBWrite(1, 0, len(Buffer), Buffer)
+Buffer = b'MERDA'
+result = client.DBWrite(1, 80, len(Buffer), Buffer)
 print("Result of write at address 2")
 print(result)
 
