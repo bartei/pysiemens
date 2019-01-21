@@ -30,35 +30,6 @@ class PduSizeValues(object):
     Size_8192 = 0x0D
 
 
-class PduFunctions(object):
-    pduResponse = 0x02  # Response (when error)
-    pduFuncRead = 0x04  # Read area
-    pduFuncWrite = 0x05  # Write area
-    pduNegotiate = 0xF0  # Negotiate PDU length
-    pduStart = 0x28  # CPU start
-    pduStop = 0x29  # CPU stop
-    pduStartUpload = 0x1D  # Start Upload
-    pduUpload = 0x1E  # Upload
-    pduEndUpload = 0x1F  # EndUpload
-    pduReqDownload = 0x1A  # Start Download request
-    pduDownload = 0x1B  # Download request
-    pduDownloadEnded = 0x1C  # Download end request
-    pduControl = 0x28  # Control (insert/delete..)
-
-
-class PduSubFunctions(object):
-    SFun_ListAll = 0x01  # List all blocks
-    SFun_ListBoT = 0x02  # List Blocks of type
-    SFun_BlkInfo = 0x03  # Get Block info
-    SFun_ReadSZL = 0x01  # Read SZL
-    SFun_ReadClock = 0x01  # Read Clock (Date and Time)
-    SFun_SetClock = 0x02  # Set Clock (Date and Time)
-    SFun_EnterPwd = 0x01  # Enter password    for this session
-    SFun_CancelPwd = 0x02  # Cancel password    for this session
-    SFun_Insert = 0x50  # Insert block
-    SFun_Delete = 0x42  # Delete block
-
-
 class TpktTransport(object):
     def __init__(self, socket):
         self.socket = socket
@@ -260,93 +231,156 @@ class S7Header(object):
 
         self.p = struct.unpack(">B", packet[0:1])[0]
         self.pdu_type = struct.unpack(">B", packet[1:2])[0]
-        self.ab_ex = struct.unpack(">H", packet[2:4])[0]
-        self.sequence = struct.unpack(">H", packet[4:6])[0]
-        self.par_len = struct.unpack(">H", packet[6:8])[0]
-        self.data_len = struct.unpack(">H", packet[8:10])[0]
-        self.error = struct.unpack(">H", packet[10:12])[0]
 
-        self.parameters = packet[12:12+self.par_len]
-        self.data = packet[12+self.par_len:12+self.par_len+self.data_len]
+        if self.pdu_type == 8:
+            self.ab_ex = struct.unpack(">H", packet[2:4])[0]
+            self.sequence = struct.unpack(">H", packet[4:6])[0]
+            self.data_len = struct.unpack(">H", packet[6:8])[0]
+            self.error = struct.unpack(">H", packet[8:10])[0]
+            self.parameters = bytearray(0)
+            self.data = packet[10+self.par_len:10+self.par_len+self.data_len]
+
+        if self.pdu_type == 1 or self.pdu_type == 7:
+            self.ab_ex = struct.unpack(">H", packet[2:4])[0]
+            self.sequence = struct.unpack(">H", packet[4:6])[0]
+            self.par_len = struct.unpack(">H", packet[6:8])[0]
+            self.data_len = struct.unpack(">H", packet[8:10])[0]
+            self.parameters = packet[10:10+self.par_len]
+            self.data = packet[10+self.par_len:10+self.par_len+self.data_len]
 
 
-class S7NegotiateParams(object):
+        if self.pdu_type == 2 or self.pdu_type == 3:
+            self.ab_ex = struct.unpack(">H", packet[2:4])[0]
+            self.sequence = struct.unpack(">H", packet[4:6])[0]
+            self.par_len = struct.unpack(">H", packet[6:8])[0]
+            self.data_len = struct.unpack(">H", packet[8:10])[0]
+            self.error = struct.unpack(">H", packet[10:12])[0]
+            self.parameters = packet[12:12+self.par_len]
+            self.data = packet[12+self.par_len:12+self.par_len+self.data_len]
+
+
+class S7Functions(object):
+    pdu_functions = dict({
+        'pduResponse': 0x02,  # Response (when error)
+        'pduFuncRead': 0x04,  # Read area
+        'pduFuncWrite': 0x05,  # Write area
+        'pduNegotiate': 0xF0,  # Negotiate PDU length
+        'pduStart': 0x28,  # CPU start
+        'pduStop': 0x29,  # CPU stop
+        'pduStartUpload': 0x1D,  # Start Upload
+        'pduUpload': 0x1E,  # Upload
+        'pduEndUpload': 0x1F,  # EndUpload
+        'pduReqDownload': 0x1A,  # Start Download request
+        'pduDownload': 0x1B,  # Download request
+        'pduDownloadEnded': 0x1C,  # Download end request
+        'pduControl': 0x28  # Control (insert/delete..)
+    })
+
+    pdu_sub_functions = dict({
+        'SFun_ListAll': 0x01,  # List all blocks
+        'SFun_ListBoT': 0x02,  # List Blocks of type
+        'SFun_BlkInfo': 0x03,  # Get Block info
+        'SFun_ReadSZL': 0x01,  # Read SZL
+        'SFun_ReadClock': 0x01,  # Read Clock (Date and Time)
+        'SFun_SetClock': 0x02,  # Set Clock (Date and Time)
+        'SFun_EnterPwd': 0x01,  # Enter password    for this session
+        'SFun_CancelPwd': 0x02,  # Cancel password    for this session
+        'SFun_Insert': 0x50,  # Insert block
+        'SFun_Delete': 0x42,  # Delete block
+    })
+
+    types_groups = dict({
+        'grProgrammer': 0x41,
+        'grCyclicData': 0x42,
+        'grBlocksInfo': 0x43,
+        'grSZL': 0x44,
+        'grPassword': 0x45,
+        'grBSend': 0x46,
+        'grClock': 0x47,
+        'grSecurity': 0x45,
+    })
+
     def __init__(self, socket):
-        self.s7 = S7Header(socket)
-        self.function = PduFunctions.pduNegotiate
-        self.unknown = 0
-        self.parallel_jobs_1 = 0x0001
-        self.parallel_jobs_2 = 0x0001
-        self.pdu_length = 480                   # Requested length for the negotiation
-        self.negotiated_pdu_length = 480        # Confirmed length for the negotiation
+        self.socket = socket
+
+    @staticmethod
+    def shift_value(value, data_type):
+        # Adjust offset and data length
+        no_shift_data_types = (
+            S7.DataTypes.Bit,
+            S7.DataTypes.Counter,
+            S7.DataTypes.Timer,
+        )
+
+        if data_type not in no_shift_data_types:
+            return value << 3
+        else:
+            return value
+
+    @staticmethod
+    def unshift_value(value, data_type):
+        # Adjust offset and data length
+        no_shift_data_types = (
+            S7.DataTypes.Bit,
+            S7.DataTypes.Counter,
+            S7.DataTypes.Timer,
+        )
+
+        if data_type not in no_shift_data_types:
+            return value >> 3
+        else:
+            return value
 
     def negotiate(self, pdu_length=480):
-        self.pdu_length = pdu_length
+        function_code = self.pdu_functions["pduNegotiate"]
+        unknown = 0
+        parallel_jobs_1 = 0x0001
+        parallel_jobs_2 = 0x0001
+        pdu_length = pdu_length      # Requested length for the negotiation
 
         packet = bytearray(8)
-        packet[0:1] = struct.pack(">B", self.function)
-        packet[1:2] = struct.pack(">B", self.unknown)
-        packet[2:4] = struct.pack(">H", self.parallel_jobs_1)
-        packet[4:6] = struct.pack(">H", self.parallel_jobs_2)
-        packet[6:8] = struct.pack(">H", self.pdu_length)
+        packet[0:1] = struct.pack(">B", function_code)
+        packet[1:2] = struct.pack(">B", unknown)
+        packet[2:4] = struct.pack(">H", parallel_jobs_1)
+        packet[4:6] = struct.pack(">H", parallel_jobs_2)
+        packet[6:8] = struct.pack(">H", pdu_length)
 
         log.debug("{} Header:".format(self.__class__.__name__))
         log.debug(utils.hex_log(packet))
 
-        self.s7.send(parameters=packet, data=bytearray(0))
+        request = S7Header(socket=self.socket)
+        request.send(parameters=packet, data=bytearray(0))
 
-        self.s7.recv()
-        res_header = self.s7.parameters
-        res_data = self.s7.data
+        response = S7Header(socket=self.socket)
+        response.recv()
 
-        log.debug("{} Response Header:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(res_header))
+        result = dict()
+        result['function'] = struct.unpack(">B", response.parameters[0:1])[0]
+        result['unknown'] = struct.unpack(">B", response.parameters[1:2])[0]
+        result['parallel_jobs_1'] = struct.unpack(">H", response.parameters[2:4])[0]
+        result['parallel_jobs_2'] = struct.unpack(">H", response.parameters[4:6])[0]
+        result['pdu_length'] = struct.unpack(">H", response.parameters[6:8])[0]
+        self.pdu_length = result['pdu_length']
 
-        log.debug("{} Response Header:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(res_data))
-
-        self.function = struct.unpack(">B", res_header[0:1])[0]
-        self.unknown = struct.unpack(">B", res_header[1:2])[0]
-        self.parallel_jobs_1 = struct.unpack(">H", res_header[2:4])[0]
-        self.parallel_jobs_2 = struct.unpack(">H", res_header[4:6])[0]
-        self.negotiated_pdu_length = struct.unpack(">H", res_header[6:8])[0]
-
-        return self.negotiated_pdu_length == self.pdu_length
-
-
-class S7ReadAreaRequest(object):
-    def __init__(self, socket):
-        self.socket = socket
-        self.data = bytearray()
-
-        # Return Function Data Header
-        self.function_code = 0x00
-        self.item_count = 0x00
-
-        self.return_code = 0x00
-        self.transport_size = 0x00
-        self.data_length = 0x0000
+        return result
 
     def read_raw(self, area, db, offset, elements_count, elements_type):
-        function_request = 0x04
+        function_request = self.pdu_functions["pduFuncRead"]
         items_count = 1
-        var_spec = 0x12
-        remaining_bytes_len = 0x0a
-        syntax_id = 0x10
 
         parameters = bytearray()
         parameters.extend(struct.pack(">B", function_request))
 
         parameters.extend(struct.pack(">B", items_count))
-        parameters.extend(struct.pack(">B", var_spec))
-        parameters.extend(struct.pack(">B", remaining_bytes_len))
-        parameters.extend(struct.pack(">B", syntax_id))
+        parameters.extend(struct.pack(">B", 0x12))
+        parameters.extend(struct.pack(">B", 0x0a))
+        parameters.extend(struct.pack(">B", 0x10))
 
         parameters.extend(struct.pack(">B", elements_type))
         parameters.extend(struct.pack(">H", elements_count))
         parameters.extend(struct.pack(">H", db))
         parameters.extend(struct.pack(">B", area))
-        parameters.extend(struct.pack(">L", offset)[1:4])
+        parameters.extend(struct.pack(">L", self.shift_value(offset, elements_type))[1:4])
 
         log.debug("{} sends parameters:".format(self.__class__.__name__))
         log.debug(utils.hex_log(parameters))
@@ -357,269 +391,44 @@ class S7ReadAreaRequest(object):
         response = S7Header(socket=self.socket)
         response.recv()
 
+        result = dict()
+
+        # Check for errors
+        if response.error != 0:
+            result['data'] = b''
+            result['s7_error'] = response.error
+            return result
+
+        # Transport Size
+        transport_size = struct.unpack(">B", response.data[1:2])[0]
+
+        # Adjust Data Length
+        data_length = struct.unpack(">H", response.data[2:4])[0]
+        data_length = self.unshift_value(data_length, elements_type)
+
+
         # Read the response parameters
-        self.function_code = struct.unpack(">B", response.parameters[0:1])[0]
-        self.item_count = struct.unpack(">B", response.parameters[1:2])[0]
+        result['function'] = struct.unpack(">B", response.parameters[0:1])[0]
+        result['item_count'] = struct.unpack(">B", response.parameters[1:2])[0]
 
         # Read the response item
-        self.return_code = struct.unpack(">B", response.data[0:1])[0]
-        self.transport_size = struct.unpack(">B", response.data[1:2])[0]
-        self.data_length = struct.unpack(">H", response.data[2:4])[0]
-
-        # Adjust Offset
-        if self.transport_size not in (S7.TransportSizes.Octet,
-                                       S7.TransportSizes.Real,
-                                       S7.TransportSizes.Bit):
-            self.data_length = self.data_length >> 3
-
-        self.data = response.data[4:]
-
-
-
-
-class AreaFunctionRequest(object):
-    def __init__(self, socket):
-        self.s7 = S7Header(socket)
-        self.function = 4  # 4 read, 5 write
-        self.items_count = 1
-        self.var_spec = 0x12
-        self.remaining_bytes_len = 0x0a
-        self.syntax_id = 0x10
-
-    def send(self, area, db, offset, elements_count, elements_type):
-        self.function = 0x04
-        self.items_count = 1
-        self.var_spec = 0x12
-        self.remaining_bytes_len = 0x0a
-        self.syntax_id = 0x10
-
-        parameters = bytearray(14)
-        parameters[0:1] = struct.pack(">B", self.function)
-        parameters[1:2] = struct.pack(">B", self.items_count)
-        parameters[2:3] = struct.pack(">B", self.var_spec)
-        parameters[3:4] = struct.pack(">B", self.remaining_bytes_len)
-        parameters[4:5] = struct.pack(">B", self.syntax_id)
-
-        parameters[5:6] = struct.pack(">B", elements_type)
-        parameters[6:8] = struct.pack(">H", elements_count)
-        parameters[8:10] = struct.pack(">H", db)
-        parameters[10:11] = struct.pack(">B", area)
-        parameters[11:14] = struct.pack(">L", offset)[1:4]
-
-        log.debug("{} sends parameters:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(parameters))
-
-        self.s7.send(parameters=parameters, data=bytearray(0))
-
-    def recv(self):
-        self.s7.recv()
-        parameters = self.s7.parameters
-        data = self.s7.data
-        log.debug("{} recv parameters:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(parameters))
-
-        log.debug("{} recv data:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(data))
-
-        return data
-
-
-class AreaTransferFunctions(object):
-    def __init__(self, socket):
-        self.function_request = AreaFunctionRequest(socket)
-        self.socket = socket
-
-        self.transport_size = 0x00
-        self.num_elements = 0x0000
-        self.db_number = 0x0000
-        self.area_type = 0x00
-        self.area_offset = 0x000000 # 3 bytes in size
-
-    def send(self, function_code, area, db, offset, elements_count, elements_type, payload):
-        packet = bytearray(9)
-        packet[0:1] = struct.pack(">B", elements_type)
-        packet[1:3] = struct.pack(">H", elements_count)
-        packet[3:5] = struct.pack(">H", db)
-        packet[5:6] = struct.pack(">B", area)
-        packet[6:9] = struct.pack(">L", offset)[1:4]
-
-        log.debug("{} sends header:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(packet))
-
-        log.debug("{} sends data:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(payload))
-
-        self.function_request.send(function=function_code, parameters=packet, data=payload)
-
-    def recv(self):
-        packet = self.function_request.recv()
-        log.debug("{} recv packet:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(packet))
-        return packet
-
-
-class FunctionParameters(object):
-    def __init__(self, socket):
-        self.transfer_runctions = AreaTransferFunctions(socket)
-        self.function_code = 0x00
-        self.item_count = 0x00
-
-    def send(self, function_code, item_count, area, db, offset, elements_count, elements_type, payload):
-        self.function_code = function_code
-        self.item_count = item_count
-        packet = bytearray(2)
-        packet[0:1] = struct.pack(">B", self.function_code)
-        packet[1:2] = struct.pack(">B", self.item_count)
-        packet.extend(payload)
-
-        log.debug("{} sends:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(packet))
-
-        self.transfer_runctions.send(function_code=function_code, area=area, db=db, offset=offset,
-                                     elements_count=elements_count, elements_type=elements_type, payload=payload)
-
-    def recv(self):
-        packet = self.transfer_runctions.recv()
-        self.function_code = struct.unpack(">B", packet[0:1])[0]
-        self.item_count = struct.unpack(">B", packet[1:2])[0]
-
-        log.debug("{} receives:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(packet))
-
-        return packet[2:]
-
-
-class FunctionItem(object):
-    def __init__(self, socket):
-        self.parameters = FunctionParameters(socket)
-
-        self.return_code = 0x00
-        self.transport_size = 0x00
-        self.data_length = 0x0000
-        self.payload = bytearray()
-
-    def send(self, data_length, area, db, offset, elements_count, elements_type, payload):
-        self.return_code = 0x00
-        self.transport_size = S7.transport_size(elements_type)
-
-        # Adjust offset and data length
-        no_shift_areas = (
-            S7.DataTypes.Bit,
-            S7.DataTypes.Counter,
-            S7.DataTypes.Timer,
-        )
-        if offset not in no_shift_areas:
-            offset = (offset << 3)
-            data_length = data_length << 3
-
-        self.data_length = data_length
-
-        packet = bytearray(4)
-        packet[0:1] = struct.pack(">B", self.return_code)
-        packet[1:2] = struct.pack(">B", self.transport_size)
-        packet[2:4] = struct.pack(">H", self.data_length)
-        packet.extend(payload)
-
-        log.debug("{} sends:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(packet))
-
-        self.parameters.send(function_code=5, item_count=1, area=area, db=db, offset=offset,
-                             elements_count=elements_count, elements_type=elements_type, payload=packet)
-
-    def recv(self):
-        packet = self.parameters.recv()
-
-        # When doing a write request, the content of this packet is the error code of the operation
-        if len(packet) == 1:
-            self.return_code = struct.unpack(">B", packet[0:1])[0]
-            return self.return_code
-
-        self.return_code = struct.unpack(">B", packet[0:1])[0]
-        self.transport_size = struct.unpack(">B", packet[1:2])[0]
-        self.data_length = struct.unpack(">H", packet[2:4])[0]
-
-        # Adjust Offset
-        if self.transport_size not in (S7.TransportSizes.Octet,
-                                       S7.TransportSizes.Real,
-                                       S7.TransportSizes.Bit):
-            self.data_length = self.data_length >> 3
-
-        log.debug("{} receives:".format(self.__class__.__name__))
-        log.debug(utils.hex_log(packet))
-
-        self.payload = packet[4:]
-        return self.payload
-
-
-class Functions(object):
-    def __init__(self, socket, pdu_length):
-        self.functions = AreaTransferFunctions(socket)
-        self.pdu_length = pdu_length
-        self.socket = socket
-
-        self.transport_size = 0x00
-        self.num_elements = 0x0000
-        self.db_number = 0x0000
-        self.area_type = 0x00
-        self.area_offset = 0x000000 # 3 bytes in size
-
-    def read(self, area, db, start, num_elements, elements_type):
-        self.num_elements = num_elements
-        self.db_number = db
-        self.area_type = area
-
-        if area is S7.Area.CT:
-            elements_type = S7.DataTypes.Counter
-        if area is S7.Area.TM:
-            elements_type = S7.DataTypes.Timer
-
-        # Calc Word size
-        self.transport_size = S7.data_size(elements_type)
-        if self.transport_size == 0:
-            raise Exception("Invalid elements_type given")
-
-        tot_elements = num_elements
-        if elements_type == S7.DataTypes.Bit:
-            tot_elements = 1  # Only 1 bit can be transferred at time
-        else:
-            if (elements_type != S7.DataTypes.Counter) and (elements_type != S7.DataTypes.Timer):
-                tot_elements = tot_elements * self.transport_size
-                self.transport_size = 1
-                elements_type = S7.DataTypes.Byte
-
-        max_elements = (self.pdu_length - 18) // self.transport_size
-
-        result = bytearray()
-        while tot_elements > 0:
-            num_elements = min(tot_elements, max_elements)
-
-            area_offset = start
-            read = S7ReadAreaRequest(self.socket)
-            read.read_raw(area=self.area_type, db=self.db_number, offset=area_offset, elements_count=num_elements,
-                          elements_type=elements_type)
-
-            # Read with the response header
-            result.extend(read.data)
-
-            tot_elements -= num_elements
-            start += num_elements * self.transport_size
+        result['return_code'] = struct.unpack(">B", response.data[0:1])[0]
+        result['transport_size'] = transport_size
+        result['data_length'] = data_length
+        result['adjusted_data_length'] = struct.unpack(">H", response.data[2:4])[0]
+        result['data'] = response.data[4:]
 
         return result
 
-    def write(self, area, db, start, num_elements, elements_type, data):
-
-        self.num_elements = num_elements
-        self.db_number = db
-        self.area_type = area
-
+    def write_raw(self, area, db, start, num_elements, elements_type, data):
         if area is S7.Area.CT:
             elements_type = S7.DataTypes.Counter
         if area is S7.Area.TM:
             elements_type = S7.DataTypes.Timer
 
         # Calc Word size
-        self.transport_size = S7.data_size(elements_type)
-        if self.transport_size == 0:
+        transport_size = S7.data_size(elements_type)
+        if transport_size == 0:
             raise Exception("Invalid elements_type given")
 
         tot_elements = num_elements
@@ -627,32 +436,263 @@ class Functions(object):
             tot_elements = 1  # Only 1 bit can be transferred at time
         else:
             if (elements_type != S7.DataTypes.Counter) and (elements_type != S7.DataTypes.Timer):
-                tot_elements = tot_elements * self.transport_size
-                self.transport_size = 1
+                tot_elements = tot_elements * transport_size
+                transport_size = 1
                 elements_type = S7.DataTypes.Byte
 
-        max_elements = (self.pdu_length - 18) // self.transport_size
+        max_elements = (self.pdu_length - 18) // transport_size
 
+        result = list()
         while tot_elements > 0:
             num_elements = min(tot_elements, max_elements)
-
             area_offset = start
 
-            item = FunctionItem(self.socket)
-            item.send(
-                data_length=len(data),
-                area=area,
-                db=self.db_number,
-                offset=area_offset,
-                elements_count=num_elements,
-                elements_type=elements_type,
-                payload=data
-            )
+            function_code = self.pdu_functions["pduFuncWrite"]
 
-            response_item = FunctionItem(self.socket)
-            result = response_item.recv()
+            #### Function Parameters
+            parameters = bytearray()
+            parameters.extend(struct.pack(">B", function_code))
+            parameters.extend(struct.pack(">B", 1))             # Item Count
+            parameters.extend(struct.pack(">B", 0x12))
+            parameters.extend(struct.pack(">B", 0x0a))
+            parameters.extend(struct.pack(">B", 0x10))
+
+            parameters.extend(struct.pack(">B", elements_type)) # Transport Size
+            parameters.extend(struct.pack(">H", num_elements)) # Length
+            parameters.extend(struct.pack(">H", db)) # Db Number
+            parameters.extend(struct.pack(">B", area)) # Area
+            parameters.extend(struct.pack(">L", self.shift_value(area_offset, elements_type))[1:4]) # Address
+
+            #### Item
+            return_code = 0x00
+            transport_size = S7.transport_size(elements_type)
+
+            packet = bytearray()
+            packet.extend(struct.pack(">B", return_code))
+            packet.extend(struct.pack(">B", transport_size))
+            packet.extend(struct.pack(">H", self.shift_value(num_elements, elements_type)))
+            packet.extend(data)
+
+            log.debug("{} sends:".format(self.__class__.__name__))
+            log.debug(utils.hex_log(packet))
+
+            request = S7Header(socket=self.socket)
+            request.send(parameters=parameters, data=packet)
+
+            #### Process Response
+            response = S7Header(socket=self.socket)
+            response.recv()
+
+            result.append({
+                'function': response.parameters[0],
+                'items_count': response.parameters[1],
+                'result_code': response.data[0],
+            })
 
             tot_elements -= num_elements
-            start += num_elements * self.transport_size
+            start += num_elements * transport_size
 
-        return
+        return result
+
+    def plc_stop(self):
+        parameters = bytearray()
+        parameters.extend(struct.pack(">B", self.pdu_functions["pduStop"]))  # Function
+        parameters.extend([0x00, 0x00, 0x00, 0x00, 0x00])  # 5 unknown bytes always at 0
+
+        ascii_string = b'P_PROGRAM'
+        parameters.extend(struct.pack(">B",len(ascii_string))) # Length of the next elements
+        parameters.extend(ascii_string)
+
+        request = S7Header(socket=self.socket)
+        request.send(parameters=parameters, data=b'')
+
+        #### Process Response
+        response = S7Header(socket=self.socket)
+        response.recv()
+
+        result = dict()
+        result['function'] = response.parameters[0]
+
+        if len(response.parameters) > 1:
+            result['para'] = response.parameters[1]
+            result['already_stopped'] = response.parameters[1] == 0x02
+
+        return result
+
+    def plc_hot_start(self):
+        parameters = bytearray()
+        parameters.extend(struct.pack(">B", self.pdu_functions["pduStart"]))  # Function
+        parameters.extend([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFD])  # 7 unknown bytes always at 0
+        parameters.extend(struct.pack(">H", 0))  # Length 1
+
+        ascii_string = b'P_PROGRAM'
+        parameters.extend(struct.pack(">B", len(ascii_string)))  # Length of the next elements, Length 2
+        parameters.extend(ascii_string)
+
+        request = S7Header(socket=self.socket)
+        request.send(parameters=parameters, data=b'')
+
+        #### Process Response
+        response = S7Header(socket=self.socket)
+        response.recv()
+
+        result = dict()
+
+        result['function'] = response.parameters[0]
+        if len(response.parameters) > 1:
+            result['para'] = response.parameters[1]
+            result['already_started'] = response.parameters[1] == 0x03
+
+        return result
+
+    def plc_cold_start(self):
+        parameters = bytearray()
+        parameters.extend(struct.pack(">B", self.pdu_functions["pduStart"]))  # Function
+        parameters.extend([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFD])  # 7 unknown bytes always at 0
+
+        subfunction = bytearray()
+        subfunction.extend(struct.pack(">H", 0x4320))  # Cold Start Subfunction Parameter 0x4320
+
+        # Subfunction parameters
+        parameters.extend(struct.pack(">H", len(subfunction)))  # Length
+        parameters.extend(subfunction)  # Subfunction parameters
+
+        # Function Parameters
+        ascii_string = b'P_PROGRAM'
+        parameters.extend(struct.pack(">B", len(ascii_string)))  # Length
+        parameters.extend(ascii_string) # Function Parameters
+
+        request = S7Header(socket=self.socket)
+        request.send(parameters=parameters, data=b'')
+
+        #### Process Response
+        response = S7Header(socket=self.socket)
+        response.recv()
+
+        result = dict()
+
+        result['function'] = response.parameters[0]
+        if len(response.parameters) > 1:
+            result['para'] = response.parameters[1]
+            result['already_started'] = response.parameters[1] == 0x03
+
+        return result
+
+    def read_szl(self, id, index):
+        # Prepare first request packet
+        params = bytearray()
+        params.extend((0x00, 0x01, 0x12))  # Head always 0x00, 0x01, 0x12
+        params.extend(struct.pack(">B", 0x04))  # Parameters Length
+        params.extend(struct.pack(">B", 0x11))  # Unknown 0x11 for the first 0x12 for the next
+        params.extend(struct.pack(">B", self.types_groups['grSZL']))  # Type and Group
+        params.extend(struct.pack(">B", self.pdu_sub_functions['SFun_ReadSZL']))  # Subfunction
+        params.extend(struct.pack(">B", 0x00))  # Sequence
+
+        data = bytearray()
+        data.extend(struct.pack(">B", 0xFF))  # return code
+        data.extend(struct.pack(">B", S7.TransportSizes.Octet))  # Transport Size
+        data.extend(struct.pack(">H", 4))  # Dlen
+        data.extend(struct.pack(">H", id))  # Ret
+        data.extend(struct.pack(">H", index))  # Ret
+
+        request_first = S7Header(self.socket)
+        request_first.send(parameters=params, data=data, pdu_type=7)
+
+        #### Interpret first request response
+        response = S7Header(socket=self.socket)
+        response.recv()
+
+        # Intepret Parameters
+        res_params = dict()
+        res_params['head_0'] = struct.unpack(">B", response.parameters[0:1])[0]
+        res_params['head_1'] = struct.unpack(">B", response.parameters[1:2])[0]
+        res_params['head_2'] = struct.unpack(">B", response.parameters[2:3])[0]
+        res_params['plen'] = struct.unpack(">B", response.parameters[3:4])[0]
+        res_params['unknown'] = struct.unpack(">B", response.parameters[4:5])[0]
+        res_params['type_group'] = struct.unpack(">B", response.parameters[5:6])[0]
+        res_params['sub_function'] = struct.unpack(">B", response.parameters[6:7])[0]
+        res_params['sequence'] = struct.unpack(">B", response.parameters[7:8])[0]
+        if res_params['plen'] == 8:
+            res_params['reserved_hi'] = struct.unpack(">B", response.parameters[8:9])[0]
+            res_params['reserved_lo'] = struct.unpack(">B", response.parameters[9:10])[0]
+            res_params['error'] = struct.unpack(">H", response.parameters[10:12])[0]
+
+        # Interpret Data
+        res_data = dict()
+        res_data['return_code'] = struct.unpack(">B", response.data[0:1])[0]
+
+        # If the return code is != FF there is an error in the request
+        if res_data['return_code'] != 0xFF:
+            return b''
+
+        res_data['TS'] = struct.unpack(">B", response.data[1:2])[0]
+        res_data['dlen'] = struct.unpack(">H", response.data[2:4])[0]
+        res_data['ID'] = struct.unpack(">H", response.data[4:6])[0]
+        res_data['Index'] = struct.unpack(">H", response.data[6:8])[0]
+
+        # SZL Header
+        res_data['LENTHDR'] = struct.unpack(">H", response.data[8:10])[0]
+        res_data['N_DR'] = struct.unpack(">H", response.data[10:12])[0]
+
+        result = bytearray()
+        result.extend(response.data[12:])
+
+        done = res_params['reserved_hi'] == 0
+        sequence_in = res_params['sequence']
+        while not done:
+            # Prepare first request packet
+            params = bytearray()
+            params.extend((0x00, 0x01, 0x12))  # Head always 0x00, 0x01, 0x12
+            params.extend(struct.pack(">B", 0x08))  # Parameters Length
+            params.extend(struct.pack(">B", 0x12))  # Unknown
+            params.extend(struct.pack(">B", self.types_groups['grSZL']))  # Type and Group
+            params.extend(struct.pack(">B", self.pdu_sub_functions['SFun_ReadSZL']))  # Subfunction
+            params.extend(struct.pack(">B", sequence_in))  # Sequence
+            params.extend(struct.pack(">H", 0))  # Reserved
+            params.extend(struct.pack(">H", 0))  # Error Code
+
+            data = bytearray()
+            data.extend(struct.pack(">B", 0x0A))  # ret_val
+            data.extend(struct.pack(">B", 0))  # Transport Size
+            data.extend(struct.pack(">H", 0))  # data_len
+            data.extend(struct.pack(">H", 0))  # ID (SFC51)
+            data.extend(struct.pack(">H", 0))  # Index (SFC51)
+
+            request = S7Header(self.socket)
+            request.send(parameters=params, data=data, pdu_type=7)
+
+            #### Interpret next packets response params
+            response = S7Header(self.socket)
+            response.recv()
+
+            # Intepret Parameters
+            res_params = dict()
+            res_params['head_0'] = struct.unpack(">B", response.parameters[0:1])[0]
+            res_params['head_1'] = struct.unpack(">B", response.parameters[1:2])[0]
+            res_params['head_2'] = struct.unpack(">B", response.parameters[2:3])[0]
+            res_params['plen'] = struct.unpack(">B", response.parameters[3:4])[0]
+            res_params['unknown'] = struct.unpack(">B", response.parameters[4:5])[0]
+            res_params['type_group'] = struct.unpack(">B", response.parameters[5:6])[0]
+            res_params['sub_function'] = struct.unpack(">B", response.parameters[6:7])[0]
+            res_params['sequence'] = struct.unpack(">B", response.parameters[7:8])[0]
+            if res_params['plen'] == 8:
+                res_params['reserved_hi'] = struct.unpack(">B", response.parameters[8:9])[0]
+                res_params['reserved_lo'] = struct.unpack(">B", response.parameters[9:10])[0]
+                res_params['error'] = struct.unpack(">H", response.parameters[10:12])[0]
+
+            # Interpret Data
+            res_data = dict()
+            res_data['return_code'] = struct.unpack(">B", response.data[0:1])[0]
+            res_data['TS'] = struct.unpack(">B", response.data[1:2])[0]
+            res_data['dlen'] = struct.unpack(">H", response.data[2:4])[0]
+            # res_data['ID'] = struct.unpack(">H", response.data[4:6])[0]
+            # res_data['Index'] = struct.unpack(">H", response.data[6:8])[0]
+
+            # res_data['ListLen'] = struct.unpack(">H", response.data[8:10])[0]
+            # res_data['ListCount'] = struct.unpack(">H", response.data[10:12])[0]
+            result.extend(response.data[4:])
+
+            done = res_params['reserved_lo'] == 0
+            sequence_in = res_params['sequence']
+
+        return result

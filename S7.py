@@ -204,8 +204,8 @@ def SetDateTimeAt(Buffer, Pos, DateTime: datetime.datetime):
     Buffer[Pos+3] = ByteToBCD(DateTime.hour)
     Buffer[Pos+4] = ByteToBCD(DateTime.minute)
     Buffer[Pos+5] = ByteToBCD(DateTime.second)
-    Buffer[Pos+6] = ByteToBCD(DateTime.microsecond / 10000)
-    millis = DateTime.microsecond / 1000
+    Buffer[Pos+6] = ByteToBCD(int(DateTime.microsecond / 10000))
+    millis = DateTime.microsecond // 1000
     millis = millis % 10
     millis = millis * 10
     Buffer[Pos+7] = ByteToBCD(DateTime.weekday() + millis)

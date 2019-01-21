@@ -11,8 +11,7 @@ import telegrams
 
 from errors import *
 
-log = utils.get_logging(script__file__=__file__,verbose=True, level=logging.DEBUG)
-
+log = logging.getLogger()
 
 class S7DataItem(object):
     def __init__(self):
@@ -173,7 +172,7 @@ class S7Client(object):
     # Socket
     DefaultTimeout = 2.0
 
-    def __init__(self):
+    def __init__(self, address, port=102, timeout=2, rack=0, slot=2, pdu_length=480):
         super(S7Client, self).__init__()
 
         # Internals
@@ -182,41 +181,37 @@ class S7Client(object):
         self.MinPduSizeToRequest = 240
         self.MaxPduSizeToRequest = 960
 
-        # Properties
-        self.pdu_length = 0
-
         # Privates
-        self.LastPDUType = 0
-        self.ConnectionType = self.CONNTYPE_PG
-        self.Socket = None
-        self.Time_ms = 0
-        self.BytesRead = 0
-        self.BytesWritten = 0
+        try:
+            self.Socket = socket.socket()
+            self.Socket.settimeout(timeout)
+            self.Socket.connect((address, port))
+        except socket.timeout:
+            raise TcpConnectionTimeoutError
+
+        except Exception as e:
+            log.error("TCP Connection Failed IP: {}, Port: {}".format(address, port))
+            utils.log_error(e)
+            raise TcpConnectionFailedError
+
+        remote_tsap = (self.CONNTYPE_PG << 8) + (rack * 0x20) + slot
+
+        con_req = telegrams.CoptParams(self.Socket)
+        result = con_req.iso_connection_request(local_tsap=0x0100, remote_tsap=remote_tsap)
+        log.info("ISO Connection Request result: {}".format(result))
+
+        self.functions = telegrams.S7Functions(socket=self.Socket)
+        result = self.functions.negotiate(pdu_length=pdu_length)
+
+        if not result:
+            raise Exception('Failed to negotiate requested pdu length: {} != {}'.format(
+                self.functions.pdu_length, pdu_length))
+
+        log.info("S7 negotiated pdu length: {}".format(pdu_length))
+
 
     def __del__(self):
         self.disconnect()
-
-    def RecvISOPacket(self, packet):
-        Done = False
-        Size = 0
-
-        while not Done:
-            # Get TPKT(4 bytes)
-            packet.header_from_bytes(self.RecvPacket(4))
-            # Now we have the length in the packet, retrieve the payload
-
-            Size = packet.length
-            # Check 0 bytes Data Packet (only TPKT+COTP = 7 bytes)
-            if Size == self.IsoHSize:
-                self.RecvPacket(3)  # Skip the remaining 3 bytes and Done is still false
-            else:
-                if Size > self._PduSizeRequested + self.IsoHSize or Size < self.MinPduSize:
-                    raise IsoInvalidPduError
-                else:
-                    Done = True
-
-        packet.payload_from_bytes(self.RecvPacket(Size - 4))
-        return
 
     def __cpu_error(self, Error):
         if Error == 0:
@@ -249,129 +244,18 @@ class S7Client(object):
         else:
             raise CliFunctionRefusedError
 
-    def ConnectTo(self, address, port=102, timeout=2, rack=0, slot=2, pdu_size=480):
-        try:
-            self.Socket = socket.socket()
-            self.Socket.settimeout(timeout)
-            self.Socket.connect((address, port))
-        except socket.timeout:
-            raise TcpConnectionTimeoutError
-
-        except Exception as e:
-            log.error("TCP Connection Failed IP: {}, Port: {}".format(address, port))
-            utils.log_error(e)
-            raise TcpConnectionFailedError
-
-        remote_tsap = (self.ConnectionType << 8) + (rack * 0x20) + slot
-        con_req = telegrams.CoptParams(self.Socket)
-        result = con_req.iso_connection_request(local_tsap=0x0100, remote_tsap=remote_tsap)
-        log.info("ISO Connection Request result: {}".format(result))
-
-        negotiation = telegrams.S7NegotiateParams(self.Socket)
-        result = negotiation.negotiate(pdu_size)
-        self.pdu_length = negotiation.negotiated_pdu_length
-
-        if not result:
-            raise Exception('Failed to negotiate requested pdu length: {} != {}'.format(
-                negotiation.pdu_length, negotiation.negotiated_pdu_length))
-
-        log.info("S7 negotiated pdu length: {}".format(self.pdu_length))
-
     def disconnect(self):
         self.Socket.close()
 
     def ReadArea(self, area, db, start, num_elements, elements_type):
-        read_area = telegrams.Functions(self.Socket, self.pdu_length)
-        return read_area.read(area=area, db=db, start=start, num_elements=num_elements, elements_type=elements_type)
+        result = self.functions.read_raw(area=area, db=db, offset=start, elements_count=num_elements,
+                                    elements_type=elements_type)
+        return result.get("data", bytearray(0))
 
 
     def WriteArea(self, Area, DBNumber, Start, Amount, WordLen, Buffer):
-        write_area = telegrams.Functions(self.Socket, self.pdu_length)
-        write_area.write(area=Area, db=DBNumber, start=Start,num_elements=Amount,elements_type=WordLen,data=Buffer)
-
-    def ReadMultiVars(self, Items, ItemsCount):
-        S7Item = bytearray(12)
-        S7ItemRead = bytearray(1024)
-
-        self.Time_ms = 0
-        Elapsed = time.monotonic()
-
-        # Checks items
-        if ItemsCount > self.MaxVars:
-            raise CliTooManyItemsError
-
-        # Fills Header
-        self.PDU[0:len(s7telegrams.S7_MRD_HEADER)] = s7telegrams.S7_MRD_HEADER[:]
-        S7.SetWordAt(self.PDU, 13, (ItemsCount * len(S7Item) + 2))
-        self.PDU[18] = ItemsCount
-
-        # Fills the Items
-        Offset = 19
-        for c in range(0, ItemsCount):
-            S7Item[0:len(s7telegrams.S7_MRD_ITEM)] = s7telegrams.S7_MRD_ITEM[0:len(s7telegrams.S7_MRD_ITEM)]
-            S7Item[3] = Items[c].WordLen
-
-            S7.SetWordAt(S7Item, 4, Items[c].Amount)
-
-            if Items[c].Area == const.DB:
-                S7.SetWordAt(S7Item, 6, Items[c].DBNumber)
-            S7Item[8] = Items[c].Area
-
-            # Address into the PLC
-            Address = Items[c].Start
-            S7.SetByteAt(S7Item, 11, Address & 0x0FF)
-
-            Address = Address >> 8
-            S7.SetByteAt(S7Item, 10, Address & 0x0FF)
-
-            Address = Address >> 8
-            S7.SetByteAt(S7Item, 9, Address & 0x0FF)
-
-            self.PDU[Offset:Offset+len(S7Item)] = S7Item[0:len(S7Item)]
-            Offset += len(S7Item)
-
-        if Offset > self.PduLength:
-            raise CliSizeOverPduError
-
-        S7.SetWordAt(self.PDU, 2, Offset)  # Whole size
-        self.SendPacket(self.PDU, Offset)
-
-        # Get Answer
-        Length = self.RecvISOPacket()
-
-        # Check ISO Length
-        if Length < 22:
-            raise IsoInvalidPduError
-
-        # Check Global Operation Result
-        self.__cpu_error(S7.GetWordAt(self.PDU, 17))
-
-        # Get true ItemsCount
-        ItemsRead = S7.GetByteAt(self.PDU, 20)
-        if (ItemsRead != ItemsCount) or (ItemsRead > self.MaxVars):
-            raise CliInvalidPlcAnswerError
-
-        # Get Data
-        Offset = 21
-        for c in range(0, ItemsCount):
-            # Get the Item
-            S7ItemRead[0:Length-Offset] = self.PDU[Offset:Length]
-
-            if S7ItemRead[0] == 0xff:
-                ItemSize = S7.GetWordAt(S7ItemRead, 2)
-                if (S7ItemRead[1] != self.TS_ResOctet) and (S7ItemRead[1] != self.TS_ResReal) and (S7ItemRead[1] != self.TS_ResBit):
-                    ItemSize = ItemSize >> 3
-
-                Items[c].pData[:] = S7ItemRead[4:4+ItemSize]
-                Items[c].Result = 0
-
-                if ItemSize % 2 != 0:
-                    ItemSize += 1 # Odd size are rounded
-                Offset = Offset + 4 + ItemSize
-            else:
-                Items[c].Result = self.__cpu_error(S7ItemRead[0])
-                Offset += 4  # Skip the Item header
-        self.Time_ms = time.monotonic() - Elapsed
+        return self.functions.write_raw(area=Area, db=DBNumber, start=Start,num_elements=Amount,elements_type=WordLen,
+                                   data=Buffer)
 
     def DBRead(self, DBNumber, Start, Size):
         return self.ReadArea(S7.Area.DB, DBNumber, Start, Size, S7.DataTypes.Byte)
@@ -434,215 +318,107 @@ class S7Client(object):
         DT = DT + Delta
         return DT.isoformat()
 
-    def GetAgBlockInfo(self, BlockType, BlockNum):
-        self.Time_ms = 0
-        Elapsed = time.monotonic()
-        result = {}
-
-        S7_BI = bytearray()
-        S7_BI[:] = s7telegrams.S7_BI
-        S7.SetByteAt(S7_BI, 30, BlockType)
-
-        # Block Number
-        S7.SetByteAt(S7_BI, 31, BlockNum // 10000 + 0x30)
-        S7.SetByteAt(S7_BI, 32, BlockNum // 1000 + 0x30)
-        S7.SetByteAt(S7_BI, 33, BlockNum // 100 + 0x30)
-        S7.SetByteAt(S7_BI, 34, BlockNum // 10 + 0x30)
-        S7.SetByteAt(S7_BI, 35, BlockNum // 1 + 0x30)
-
-        self.SendPacket(S7_BI)
-
-        Length = self.RecvISOPacket()
-        if Length > 32:  # the minimum expected
-            Result = S7.GetWordAt(self.PDU, 27)
-            if Result == 0:
-                result['BlkFlags'] = self.PDU[42]
-                result['BlkLang'] = self.PDU[43]
-                result['BlkType'] = self.PDU[44]
-                result['BlkNumber'] = S7.GetWordAt(self.PDU, 45)
-                result['LoadSize'] = S7.GetDIntAt(self.PDU, 47)
-                result['CodeDate'] = self.SiemensTimestamp(EncodedDate=S7.GetWordAt(self.PDU, 59))
-                result['IntfDate'] = self.SiemensTimestamp(EncodedDate=S7.GetWordAt(self.PDU, 65))
-                result['SBBLength'] = S7.GetWordAt(self.PDU, 67)
-                result['LocalData'] = S7.GetWordAt(self.PDU, 71)
-                result['MC7Size'] = S7.GetWordAt(self.PDU, 73)
-                result['Author'] = S7.GetCharsAt(self.PDU, 75, 8)
-                result['Family'] = S7.GetCharsAt(self.PDU, 83, 8)
-                result['Header'] = S7.GetCharsAt(self.PDU, 91, 8)
-                result['Version'] = self.PDU[99]
-                result['CheckSum'] = S7.GetWordAt(self.PDU, 101)
-            else:
-                self.__cpu_error(Result)
-        else:
-            raise IsoInvalidPduError
-
-        self.Time_ms = time.monotonic() - Elapsed
-
+    def PlcHotStart(self):
+        result = self.functions.plc_hot_start()
         return result
 
-    def ReadSZL(self, ID, Index, SZL : S7SZL):
-        SZL.Data = bytearray()
-        Done = False
-        First = True
-        Seq_in = 0x00
-        Seq_out = 0x0000
-        self.Time_ms = 0
-        Elapsed = time.monotonic()
-        SZL.Header.LENTHDR = 0
+    def PlcStop(self):
+        result = self.functions.plc_stop()
+        return result
 
-        S7_SZL_FIRST = bytearray()
-        S7_SZL_FIRST[:] = s7telegrams.S7_SZL_FIRST
+    def PlcColdStart(self):
+        result = self.functions.plc_cold_start()
+        return result
 
-        S7_SZL_NEXT = bytearray()
-        S7_SZL_NEXT[:] = s7telegrams.S7_SZL_NEXT
-
-        while not Done:
-            if First:
-                Seq_out += 1
-                S7.SetWordAt(S7_SZL_FIRST, 11, Seq_out)
-                S7.SetWordAt(S7_SZL_FIRST, 29, ID)
-                S7.SetWordAt(S7_SZL_FIRST, 31, Index)
-                self.SendPacket(S7_SZL_FIRST)
-            else:
-                Seq_out += 1
-                S7.SetWordAt(S7_SZL_NEXT, 11, ++Seq_out)
-                self.PDU[24] = Seq_in
-                self.SendPacket(S7_SZL_NEXT)
-
-            Length = self.RecvISOPacket()
-            if First:
-                if Length > 32:  # the minimum expected
-                    if (S7.GetWordAt(self.PDU, 27) == 0) and (self.PDU[29] == 0xFF):
-                        # Gets Amount of this slice
-                        DataSZL = S7.GetWordAt(self.PDU, 31) - 8  # Skips extra params (ID, Index ...)
-                        Done = self.PDU[26] == 0x00
-                        Seq_in = self.PDU[24]  # Slice sequence
-                        SZL.Header.LENTHDR = S7.GetWordAt(self.PDU, 37)
-                        SZL.Header.N_DR = S7.GetWordAt(self.PDU, 39)
-                        SZL.Data.extend(self.PDU[41:41+DataSZL])
-                        SZL.Header.LENTHDR += SZL.Header.LENTHDR
-                    else:
-                        raise CliInvalidPlcAnswerError
-                else:
-                    raise IsoInvalidPduError
-            else:
-                if Length > 32:  # the minimum expected
-                    if (S7.GetWordAt(self.PDU, 27) == 0) and (self.PDU[29] == 0xFF):
-                        # Gets Amount of this slice
-                        DataSZL = S7.GetWordAt(self.PDU, 31)
-                        Done = self.PDU[26] == 0x00
-                        Seq_in = self.PDU[24]  # Slice sequence
-                        SZL.Data.extend(self.PDU[37:37+DataSZL])
-                        SZL.Header.LENTHDR += SZL.Header.LENTHDR
-                    else:
-                        raise CliInvalidPlcAnswerError
-                else:
-                    raise IsoInvalidPduError
-
-            First = False
-
-        self.Time_ms = time.monotonic() - Elapsed
-
-    def GetOrderCode(self):
-        SZL = S7SZL()
-        Elapsed = time.monotonic()
-        self.ReadSZL(0x0011, 0x000, SZL)
+    def GetPlcStatus(self):
+        result = self.functions.read_szl(id=0x0424, index=0x0000)
 
         Info = dict()
-        Info['Code'] = S7.GetCharsAt(SZL.Data, 2, 20)
-        Info['V1'] = S7.GetByteAt(SZL.Data, len(SZL.Data)-3)
-        Info['V2'] = S7.GetByteAt(SZL.Data, len(SZL.Data)-2)
-        Info['V3'] = S7.GetByteAt(SZL.Data, len(SZL.Data)-1)
-        self.Time_ms = time.monotonic() - Elapsed
+        Info['StatusCode'] = result[3]
+        Info['Run'] = Info['StatusCode'] == 0x08
+        Info['Stop'] = Info['StatusCode'] != 0x08
+
+        return Info
+
+    def GetOrderCode(self):
+        result = self.functions.read_szl(id=0x0011, index=0x0000)
+
+        Info = dict()
+        Info['Code'] = S7.GetCharsAt(result, 2, 20)
+        Info['V1'] = S7.GetByteAt(result, len(result)-3)
+        Info['V2'] = S7.GetByteAt(result, len(result)-2)
+        Info['V3'] = S7.GetByteAt(result, len(result)-1)
         return Info
 
     def GetCpuInfo(self):
-        SZL = S7SZL()
-        Elapsed = time.monotonic()
-        self.ReadSZL(0x001C, 0x000, SZL)
+        result = self.functions.read_szl(id=0x001C, index=0x0000)
 
         Info = dict()
-        Info['ModuleTypeName'] = S7.GetCharsAt(SZL.Data, 172, 32)
-        Info['SerialNumber'] = S7.GetCharsAt(SZL.Data, 138, 24)
-        Info['ASName'] = S7.GetCharsAt(SZL.Data, 2, 24)
-        Info['Copyright'] = S7.GetCharsAt(SZL.Data, 104, 26)
-        Info['ModuleName'] = S7.GetCharsAt(SZL.Data, 36, 24)
 
-        self.Time_ms = time.monotonic() - Elapsed
+        index = 0
+        while index < len(result):
+            element = result[index:index+34]
+            element_identifier = struct.unpack(">H", element[0:2])[0]
+
+            # PLC Name
+            if element_identifier == 1:
+                Info['PlcName'] = element[2:2+24].decode("utf-8").replace('\x00', '')
+
+            # Name
+            if element_identifier == 2:
+                Info['Name'] = element[2:2+24].decode("utf-8").replace('\x00', '')
+
+            # Plant
+            if element_identifier == 3:
+                Info['Plant'] = element[2:2+32].decode("utf-8").replace('\x00', '')
+
+            # Copyright
+            if element_identifier == 4:
+                Info['Copyright'] = element[2:2+26].decode("utf-8").replace('\x00', '')
+
+            # Serial Number
+            if element_identifier == 5:
+                Info['SerialNumber'] = element[2:2+24].decode("utf-8").replace('\x00', '')
+
+            # Module Type Name
+            if element_identifier == 7:
+                Info['ModuleTypeName'] = element[2:2+32].decode("utf-8").replace('\x00', '')
+
+            # MMC Serial Number
+            if element_identifier == 8:
+                Info['MmcSerialNumber'] = element[2:2+32].decode("utf-8").replace('\x00', '')
+
+            # OEM ID
+            if element_identifier == 0xA:
+                Info['OemId'] = element[2:2+26].decode("utf-8").replace('\x00', '')
+
+            # Location Id
+            if element_identifier == 0xA:
+                Info['LocationId'] = element[2:2+32].decode("utf-8").replace('\x00', '')
+
+            index += 34
+
+        return Info
+
+    def GetModuleId(self):
+        result = self.functions.read_szl(id=0x0111, index=0x0001) # Module
+
+        Info = dict()
+        Info['Index'] = struct.unpack(">H", result[0:2])[0]
+        Info['MIFB'] = result[2:22].decode("utf-8")
+        Info['BGTyp'] = struct.unpack(">H", result[22:24])[0]
+        Info['AusBg1'] = struct.unpack(">H", result[24:26])[0]
+        Info['AusBg2'] = struct.unpack(">H", result[26:28])[0]
+
         return Info
 
     def GetCpInfo(self):
-        SZL = S7SZL()
-        Elapsed = time.monotonic()
-        self.ReadSZL(0x0131, 0x001, SZL)
+        result = self.functions.read_szl(id=0x0131, index=0x0001)
 
         Info = dict()
-        Info['MaxPduLength'] = S7.GetIntAt(SZL.Data, 2)
-        Info['MaxConnections'] = S7.GetIntAt(SZL.Data, 4)
-        Info['MaxMpiRate'] = S7.GetDIntAt(SZL.Data, 6)
-        Info['MaxBusRate'] = S7.GetDIntAt(SZL.Data, 10)
+        Info['MaxPduLength'] = struct.unpack(">H", result[2:4])[0]
+        Info['MaxConnections'] = struct.unpack(">H", result[4:6])[0]
+        Info['MaxMpiRate'] = struct.unpack(">H", result[6:8])[0]
+        Info['MaxBusRate'] = struct.unpack(">H", result[10:12])[0]
 
-        self.Time_ms = time.monotonic() - Elapsed
         return Info
-
-    def PlcHotStart(self):
-        Elapsed = time.monotonic()
-
-        self.SendPacket(s7telegrams.S7_HOT_START)
-        Length = self.RecvISOPacket()
-
-        if Length <= 18:  # 18 is the minimum expected
-            raise IsoInvalidPduError
-        if self.PDU[19] != s7telegrams.pduStart:
-            raise CliCannotStartPlcError
-        if self.PDU[20] == s7telegrams.pduAlreadyStarted:
-            raise CliAlreadyRunError
-
-        self.Time_ms = time.monotonic() - Elapsed
-
-    def PlcStop(self):
-        Elapsed = time.monotonic()
-
-        self.SendPacket(s7telegrams.S7_STOP)
-        Length = self.RecvISOPacket()
-
-        if Length <= 18:  # 18 is the minimum expected
-            raise IsoInvalidPduError
-        if self.PDU[19] != s7telegrams.pduStop:
-            raise CliCannotStopPlcError
-        if self.PDU[20] == s7telegrams.pduAlreadyStopped:
-            raise CliAlreadyStopError
-
-        self.Time_ms = time.monotonic() - Elapsed
-
-    def PlcColdStart(self):
-        Elapsed = time.monotonic()
-
-        self.SendPacket(s7telegrams.S7_COLD_START)
-        Length = self.RecvISOPacket()
-
-        if Length <= 18:  # 18 is the minimum expected
-            raise IsoInvalidPduError
-        if self.PDU[19] != s7telegrams.pduStart:
-            raise CliCannotStartPlcError
-        if self.PDU[20] == s7telegrams.pduAlreadyStarted:
-            raise CliAlreadyRunError
-
-        self.Time_ms = time.monotonic() - Elapsed
-
-    def GetPlcStatus(self):
-        Elapsed = time.monotonic()
-        self.SendPacket(s7telegrams.S7_GET_STAT)
-        Length = self.RecvISOPacket()
-
-        if Length <= 30:  # the minimum expected
-            raise IsoInvalidPduError
-
-        Result = S7.GetWordAt(self.PDU, 27)
-        if Result != 0:
-            self.__cpu_error(Result)
-
-        Status = self.PDU[44]
-
-        self.Time_ms = time.monotonic() - Elapsed
-        return next((item for item in const.S7PlcStatuses if item['Code'] == Status), None)
