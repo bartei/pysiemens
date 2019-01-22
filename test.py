@@ -5,9 +5,11 @@ import utils
 import logging
 log = utils.get_logging(script__file__=__file__,verbose=True, level=logging.INFO)
 
-client = siemens.S7Client(address='10.1.2.69', port=102, rack=0, slot=2, pdu_length=480)
+client = siemens.S7Client(address='10.1.2.69', port=102, rack=0, slot=2, pdu_length=240)
 
-Buffer = client.DBRead(1, 0, 190)
+Buffer = client.MBRead(0, 80)
+
+Buffer = client.DBRead(1, 0, 180)
 print(S7.GetDIntAt(Buffer, 2))
 print(S7.GetTODAt(Buffer, 76))
 print(S7.GetDateAt(Buffer, 70))
@@ -28,25 +30,25 @@ S7.SetFloatAt(Buffer, 66, 123.456789)
 S7.SetDateTimeAt(Buffer, 58, datetime.datetime.now())
 S7.SetDateAt(Buffer, 70, datetime.date(year=2020, month=12, day=15))
 Buffer = b'MERDA'
-result = client.DBWrite(1, 80, len(Buffer), Buffer)
+result = client.DBWrite(1, 80, Buffer)
 print("Result of write at address 2")
 print(result)
 
-# result = client.PlcStop()
-# log.info("Plc Stop Result: {}".format(result))
-# print(client.GetPlcStatus())
-#
-# result = client.PlcHotStart()
-# log.info("Plc Start Result: {}".format(result))
-# print(client.GetPlcStatus())
-#
-# result = client.PlcStop()
-# log.info("Plc Stop Result: {}".format(result))
-# print(client.GetPlcStatus())
-#
-# result = client.PlcColdStart()
-# log.info("Plc Start Result: {}".format(result))
-# print(client.GetPlcStatus())
+result = client.PlcStop()
+log.info("Plc Stop Result: {}".format(result))
+print(client.GetPlcStatus())
+
+result = client.PlcHotStart()
+log.info("Plc Start Result: {}".format(result))
+print(client.GetPlcStatus())
+
+result = client.PlcStop()
+log.info("Plc Stop Result: {}".format(result))
+print(client.GetPlcStatus())
+
+result = client.PlcColdStart()
+log.info("Plc Start Result: {}".format(result))
+print(client.GetPlcStatus())
 
 
 print(client.GetCpuInfo())

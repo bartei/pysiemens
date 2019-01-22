@@ -1,7 +1,4 @@
-import const
 import S7
-
-import telegrams
 
 ISO_CR = bytearray()
 ISO_CR.append(0x03)  # RFC 1006 ID (3)

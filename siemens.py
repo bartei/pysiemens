@@ -209,7 +209,6 @@ class S7Client(object):
 
         log.info("S7 negotiated pdu length: {}".format(pdu_length))
 
-
     def __del__(self):
         self.disconnect()
 
@@ -252,34 +251,33 @@ class S7Client(object):
                                     elements_type=elements_type)
         return result.get("data", bytearray(0))
 
-
-    def WriteArea(self, Area, DBNumber, Start, Amount, WordLen, Buffer):
-        return self.functions.write_raw(area=Area, db=DBNumber, start=Start,num_elements=Amount,elements_type=WordLen,
-                                   data=Buffer)
+    def WriteArea(self, Area, DBNumber, Start, WordLen, Buffer):
+        return self.functions.write_raw(area=Area, db=DBNumber, start=Start, elements_type=WordLen, data=Buffer)
 
     def DBRead(self, DBNumber, Start, Size):
-        return self.ReadArea(S7.Area.DB, DBNumber, Start, Size, S7.DataTypes.Byte)
+        return self.ReadArea(area=S7.Area.DB, db=DBNumber, start=Start,num_elements=Size,
+                             elements_type=S7.DataTypes.Byte)
 
-    def DBWrite(self, DBNumber, Start, Size, Buffer):
-        return self.WriteArea(S7.Area.DB, DBNumber, Start, Size, S7.DataTypes.Byte, Buffer)
+    def DBWrite(self, DBNumber, Start, Buffer):
+        return self.WriteArea(S7.Area.DB, DBNumber, Start, S7.DataTypes.Byte, Buffer)
 
     def MBRead(self, Start, Size):
         return self.ReadArea(S7.Area.MK, 0, Start, Size, S7.DataTypes.Byte)
 
-    def MBWrite(self, Start, Size, Buffer):
-        return self.WriteArea(S7.Area.MK, 0, Start, Size, S7.DataTypes.Byte, Buffer)
+    def MBWrite(self, Start, Buffer):
+        return self.WriteArea(S7.Area.MK, 0, Start, S7.DataTypes.Byte, Buffer)
 
     def EBRead(self, Start, Size):
         return self.ReadArea(S7.Area.PE, 0, Start, Size, S7.DataTypes.Byte)
 
-    def EBWrite(self, Start, Size, Buffer):
-        return self.WriteArea(S7.Area.PE, 0, Start, Size, S7.DataTypes.Byte, Buffer)
+    def EBWrite(self, Start, Buffer):
+        return self.WriteArea(S7.Area.PE, 0, Start, S7.DataTypes.Byte, Buffer)
 
     def ABRead(self, Start, Size):
         return self.ReadArea(S7.Area.PA, 0, Start, Size, S7.DataTypes.Byte)
 
-    def ABWrite(self, Start, Size, Buffer):
-        return self.WriteArea(S7.Area.PA, 0, Start, Size, S7.DataTypes.Byte, Buffer)
+    def ABWrite(self, Start, Buffer):
+        return self.WriteArea(S7.Area.PA, 0, Start, S7.DataTypes.Byte, Buffer)
 
     def TMRead(self, Start, Amount):
         raw_buffer =  self.ReadArea(S7.Area.TM, 0, Start, Amount, S7.DataTypes.Timer)
